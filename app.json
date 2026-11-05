@@ -1,27 +1,44 @@
 {
   "expo": {
-    "name": "dwello-app",
+    "name": "Dwello",
     "slug": "dwello-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "dwelloapp",
-    "userInterfaceStyle": "automatic",
+    "scheme": "dwello",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cst.dwello",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Dwello uses your location to discover rental properties and flatmates closest to you in Bhutan.",
+        "NSPhotoLibraryUsageDescription": "Dwello needs photo library access to upload property and profile photos."
+      }
     },
     "android": {
+      "package": "com.cst.dwello",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",
-      "output": "server",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -32,6 +49,12 @@
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Dwello requires access to your photo library to upload property photos."
         }
       ]
     ],

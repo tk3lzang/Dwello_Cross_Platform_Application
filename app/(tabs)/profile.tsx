@@ -1,0 +1,438 @@
+/**
+ * Profile & Account Preferences Workspace
+ * Section 10 of Dwello App Manual.
+ * Manages user profile information, photo avatar updates, Bhutanese localization, and settings.
+ */
+
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  Switch,
+  Alert,
+  Platform,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import { DwelloColors } from '@/constants/Colors';
+import { Avatar } from '@/components/Avatar';
+import { useAuth } from '@/context/AuthContext';
+import { useDebug } from '@/context/DebugContext';
+import { StorageService } from '@/services/storage';
+
+export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { user, logout, updateProfile } = useAuth();
+  const { showDebugBanner } = useDebug();
+
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    user?.notificationsEnabled ?? true
+  );
+  const [language, setLanguage] = useState<'English' | 'Dzongkha'>('English');
+
+  const handleAvatarPicker = async () => {
+    console.log('[Dwello-Auth Debug]: Initiating profile avatar picker...');
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newUri = result.assets[0].uri;
+        console.log('[Dwello-Auth Debug]: Avatar updated with new image:', newUri);
+        await updateProfile({ avatarUrl: newUri });
+        showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
+      }
+    } catch (err: any) {
+      console.error('[Dwello-Error Debug]: Avatar pick error:', err);
+      showDebugBanner('error', 'Avatar Error', 'Could not select photo.');
+    }
+  };
+
+  const handleToggleNotifications = async (val: boolean) => {
+    setNotificationsEnabled(val);
+    await StorageService.setNotificationsEnabled(val);
+    if (val) {
+      showDebugBanner(
+        'info',
+        'Notifications Active',
+        'You will receive notifications for new flatmate requests and property alerts.'
+      );
+    }
+  };
+
+  const handleLanguageToggle = () => {
+    const nextLang = language === 'English' ? 'Dzongkha' : 'English';
+    setLanguage(nextLang);
+    showDebugBanner(
+      'info',
+      'Language Updated',
+      `App language set to ${nextLang} (${nextLang === 'Dzongkha' ? 'རྫོང་ཁ' : 'English'}).`
+    );
+  };
+
+  const handleLogoutPress = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to log out of Dwello?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+          router.push('/auth/login');
+        },
+      },
+    ]);
+  };
+
+  return (
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Profile</Text>
+      </View>
+
+      <ScrollView
+        style={styles.scrollBody}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}>
+        {/* Profile Card (Manual Page 11 & 18) */}
+        <View style={styles.profileCard}>
+          <View style={styles.avatarContainer}>
+            <Avatar uri={user?.avatarUrl} name={user?.fullName || 'Tandin Kelzang'} size={88} />
+            <TouchableOpacity
+              onPress={handleAvatarPicker}
+              activeOpacity={0.8}
+              style={styles.cameraBadge}>
+              <Ionicons name="camera" size={14} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.nameRow}>
+            <Text style={styles.userName}>{user?.fullName || 'Tandin Kelzang'}</Text>
+            <TouchableOpacity
+              onPress={() => router.push('/account-details')}
+              style={styles.editPencil}>
+              <Ionicons name="pencil" size={14} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.userEmail}>{user?.email || '02240180.cst@rub.edu.bt'}</Text>
+
+          <View style={styles.whatsappRow}>
+            <Ionicons name="logo-whatsapp" size={14} color={DwelloColors.whatsappGreen} />
+            <Text style={styles.whatsappNumber}>
+              {user?.phoneNumber || '17777777'}
+            </Text>
+          </View>
+
+          <Text style={styles.memberSince}>Member since 2026</Text>
+        </View>
+
+        {/* Settings Title */}
+        <Text style={styles.settingsHeader}>Settings</Text>
+
+        <View style={styles.settingsMenu}>
+          {/* Account Details & WhatsApp */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => router.push('/account-details')}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="id-card-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>Account Details & WhatsApp</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {/* My Listings (Section 6 & 7) */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => router.push('/my-listings')}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="home-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>My Listings</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {/* Rent & Expense Splitter Tool */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => router.push('/splitter')}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="calculator-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>Rent & Expense Splitter</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {/* Language Selection */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={handleLanguageToggle}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="globe-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>Language</Text>
+            </View>
+            <View style={styles.menuRightValue}>
+              <Text style={styles.valueText}>{language}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Notifications Toggle */}
+          <View style={styles.menuItem}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="notifications-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>Notifications</Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleToggleNotifications}
+              trackColor={{ false: '#D1D5DB', true: DwelloColors.primary }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {/* Privacy & Security */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => {
+              Alert.alert(
+                'Privacy & Security',
+                'Dwello adheres to Royal University of Bhutan student data privacy standards. All passwords and contact details are encrypted.'
+              );
+            }}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="shield-checkmark-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>Privacy & Security</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {/* Help & Support (Section 10 & 11) */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => router.push('/help-support')}>
+            <View style={styles.menuLeft}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="help-circle-outline" size={18} color="#111827" />
+              </View>
+              <Text style={styles.menuLabel}>Help & Support</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Sign Out Button */}
+        <TouchableOpacity
+          onPress={handleLogoutPress}
+          activeOpacity={0.85}
+          style={styles.logoutBtn}>
+          <Ionicons name="log-out-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+          <Text style={styles.logoutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  scrollBody: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 60,
+  },
+  profileCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 5,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E5E7EB',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#111827',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  userName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  editPencil: {
+    padding: 2,
+  },
+  userEmail: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  whatsappRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 6,
+    marginBottom: 10,
+  },
+  whatsappNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  memberSince: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  settingsHeader: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginTop: 24,
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  settingsMenu: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  menuLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  menuLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  menuRightValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  valueText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  logoutText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+});
+
