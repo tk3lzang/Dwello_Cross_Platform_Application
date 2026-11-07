@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { PropertyListing } from '@/types/listing';
 import { DwelloColors } from '@/constants/Colors';
 import { formatNu } from '@/utils/splitter';
+import { BHUTAN_ZONE_COORDINATES } from '@/constants/BhutanData';
 
 // Default Bhutan region centered on Thimphu / Western Bhutan urban corridor
 const INITIAL_REGION = {
@@ -31,14 +32,69 @@ const INITIAL_REGION = {
 interface PropertyMapProps {
   listings: PropertyListing[];
   onSelectListing?: (listing: PropertyListing) => void;
+  searchLocation?: string;
 }
 
-export function PropertyMap({ listings, onSelectListing }: PropertyMapProps) {
+export function PropertyMap({ listings, onSelectListing, searchLocation }: PropertyMapProps) {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
   const [selectedListing, setSelectedListing] = useState<PropertyListing | null>(
     listings.length > 0 ? listings[0] : null
   );
+
+  // Dynamic Map View Search Geolocation & Camera Navigation
+  useEffect(() => {
+    if (!searchLocation || searchLocation.trim().length < 2) return;
+
+    const query = searchLocation.trim().toLowerCase();
+    console.log(`[Dwello-MapSearch Debug]: Evaluating map search navigation for "${searchLocation}"`);
+
+    // 1. Search in BHUTAN_ZONE_COORDINATES (exact or partial match)
+    const matchedZoneKey = Object.keys(BHUTAN_ZONE_COORDINATES).find((key) => {
+      const lower = key.toLowerCase();
+      return lower === query || lower.includes(query) || query.includes(lower);
+    });
+
+    let targetCoords: { latitude: number; longitude: number } | null = null;
+    let locationName = '';
+
+    if (matchedZoneKey) {
+      targetCoords = BHUTAN_ZONE_COORDINATES[matchedZoneKey];
+      locationName = matchedZoneKey;
+    } else {
+      // 2. Search in current listings (by zoneArea, municipalRegion, or fullAddress)
+      const matchingListing = listings.find((item) => {
+        const zoneMatch = item.zoneArea?.toLowerCase().includes(query);
+        const regionMatch = item.municipalRegion?.toLowerCase().includes(query);
+        const addrMatch = item.fullAddress?.toLowerCase().includes(query);
+        return zoneMatch || regionMatch || addrMatch;
+      });
+
+      if (matchingListing && matchingListing.latitude && matchingListing.longitude) {
+        targetCoords = {
+          latitude: matchingListing.latitude,
+          longitude: matchingListing.longitude,
+        };
+        locationName = matchingListing.zoneArea || matchingListing.title;
+        setSelectedListing(matchingListing);
+      }
+    }
+
+    if (targetCoords) {
+      console.log(
+        `[Dwello-MapSearch Debug]: Animate camera region to ${locationName} (${targetCoords.latitude}, ${targetCoords.longitude})`
+      );
+      mapRef.current?.animateToRegion(
+        {
+          latitude: targetCoords.latitude - 0.0035, // slight offset to keep pin visible above bottom card
+          longitude: targetCoords.longitude,
+          latitudeDelta: 0.02, // Clear neighborhood zoom
+          longitudeDelta: 0.02,
+        },
+        600
+      );
+    }
+  }, [searchLocation, listings]);
 
   useEffect(() => {
     setSelectedListing((prev) => {
@@ -298,7 +354,7 @@ const styles = StyleSheet.create({
   },
   previewCardWrapper: {
     position: 'absolute',
-    bottom: 82,
+    bottom: 92,
     left: 16,
     right: 16,
     ...Platform.select({

@@ -136,3 +136,41 @@ export function generateWhatsAppSplitMessage(
   );
 }
 
+/**
+ * Constructs a comprehensive WhatsApp notification message for group splits.
+ *
+ * @param result SplitterResult
+ * @param contacts List of occupants with their names
+ * @returns Pre-formatted WhatsApp text string with group breakdown
+ */
+export function generateWhatsAppGroupSplitMessage(
+  result: SplitterResult,
+  contacts: { name: string; phone?: string }[]
+): string {
+  console.log(`[Dwello-Splitter Debug]: Generating Group WhatsApp message for ${contacts.length} occupants`);
+
+  const { totalBill, perPersonShare, itemizedBreakdown } = result;
+  const occupantsList = contacts
+    .map((c, idx) => `  ${idx + 1}. ${c.name}: ${formatNu(perPersonShare)}`)
+    .join('\n');
+
+  return (
+    `🏠 *DWELLO Group Rent & Expense Breakdown*\n` +
+    `Hello Flatmates!\n` +
+    `Here is this month's shared utility & rent calculation:\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `• Monthly Base Rent: ${formatNu(itemizedBreakdown.baseRent)}\n` +
+    `• Electricity: ${formatNu(itemizedBreakdown.electricity)}\n` +
+    `• Water: ${formatNu(itemizedBreakdown.water)}\n` +
+    `• WiFi / Internet: ${formatNu(itemizedBreakdown.wifi)}\n` +
+    (itemizedBreakdown.maintenance > 0 ? `• Maintenance: ${formatNu(itemizedBreakdown.maintenance)}\n` : '') +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `*Total Bill:* ${formatNu(totalBill)}\n` +
+    `*Equal Share per Person:* ${formatNu(perPersonShare)}\n\n` +
+    `*Occupants Breakdown:*\n` +
+    `${occupantsList}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Please settle your shares via mBOB / BNBL / BDBL at your earliest convenience. Thank you!`
+  );
+}
+

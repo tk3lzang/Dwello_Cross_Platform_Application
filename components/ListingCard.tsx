@@ -17,6 +17,8 @@ interface ListingCardProps {
   listing: PropertyListing;
   onCalculatorPress?: (listing: PropertyListing) => void;
   showCalculator?: boolean;
+  /** Override the default navigate-to-detail press behaviour */
+  onPress?: (listing: PropertyListing) => void;
 }
 
 const FALLBACK_IMAGE =
@@ -26,6 +28,7 @@ export function ListingCard({
   listing,
   onCalculatorPress,
   showCalculator = false,
+  onPress,
 }: ListingCardProps) {
   const router = useRouter();
   const { isWishlisted, toggleWishlist } = useWishlist();
@@ -33,10 +36,14 @@ export function ListingCard({
   const [imageFailed, setImageFailed] = useState(false);
 
   const handleCardPress = () => {
-    router.push({
-      pathname: '/listing/[id]',
-      params: { id: listing.id },
-    });
+    if (onPress) {
+      onPress(listing);
+    } else {
+      router.push({
+        pathname: '/listing/[id]',
+        params: { id: listing.id },
+      });
+    }
   };
 
   const handleHeartPress = async (e: any) => {
@@ -178,6 +185,31 @@ export function ListingCard({
             ))}
           </View>
         )}
+
+        {/* Host Avatar Row — tappable to open Public Profile */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            console.log('[Dwello-Navigation Fix]: Navigating from listing card host avatar to full-screen profile:', listing.ownerName);
+            router.push({
+              pathname: '/public-profile/[userId]' as any,
+              params: {
+                userId: listing.ownerId,
+                ownerName: listing.ownerName,
+                ownerPhone: listing.ownerPhone,
+                ownerRole: listing.ownerRole || 'Landlord / Host',
+                ownerAvatar: listing.ownerAvatar || '',
+              },
+            });
+          }}
+          style={styles.hostRow}
+          accessibilityLabel={`View ${listing.ownerName}'s profile`}>
+          <View style={styles.hostAvatarCircle}>
+            <Ionicons name="person-circle-outline" size={22} color="#6B7280" />
+          </View>
+          <Text style={styles.hostName}>{listing.ownerName}</Text>
+          <Ionicons name="chevron-forward" size={13} color="#9CA3AF" />
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -361,5 +393,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#4338CA',
     fontWeight: '500',
+  },
+  hostRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 6,
+  },
+  hostAvatarCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hostName: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+    flex: 1,
   },
 });

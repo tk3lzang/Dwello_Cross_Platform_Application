@@ -24,6 +24,7 @@ import { Avatar } from '@/components/Avatar';
 import { useAuth } from '@/context/AuthContext';
 import { useDebug } from '@/context/DebugContext';
 import { StorageService } from '@/services/storage';
+import { ensureMediaLibraryPermission, ensureCameraPermission } from '@/utils/permissions';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -36,26 +37,61 @@ export default function ProfileScreen() {
   );
   const [language, setLanguage] = useState<'English' | 'Dzongkha'>('English');
 
-  const handleAvatarPicker = async () => {
+  const handleAvatarPicker = () => {
     console.log('[Dwello-Auth Debug]: Initiating profile avatar picker...');
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
+    Alert.alert('Update Profile Photo', 'Choose how you want to update your profile photo:', [
+      {
+        text: 'Choose from Library',
+        onPress: async () => {
+          const hasPermission = await ensureMediaLibraryPermission();
+          if (!hasPermission) return;
+          try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newUri = result.assets[0].uri;
-        console.log('[Dwello-Auth Debug]: Avatar updated with new image:', newUri);
-        await updateProfile({ avatarUrl: newUri });
-        showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
-      }
-    } catch (err: any) {
-      console.error('[Dwello-Error Debug]: Avatar pick error:', err);
-      showDebugBanner('error', 'Avatar Error', 'Could not select photo.');
-    }
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+              const newUri = result.assets[0].uri;
+              console.log('[Dwello-Auth Debug]: Avatar updated with new image:', newUri);
+              await updateProfile({ avatarUrl: newUri });
+              showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
+            }
+          } catch (err: any) {
+            console.error('[Dwello-Error Debug]: Avatar pick error:', err);
+            showDebugBanner('error', 'Avatar Error', 'Could not select photo.');
+          }
+        },
+      },
+      {
+        text: 'Take Photo',
+        onPress: async () => {
+          const hasPermission = await ensureCameraPermission();
+          if (!hasPermission) return;
+          try {
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+              const newUri = result.assets[0].uri;
+              console.log('[Dwello-Auth Debug]: Avatar captured with camera:', newUri);
+              await updateProfile({ avatarUrl: newUri });
+              showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
+            }
+          } catch (err: any) {
+            console.error('[Dwello-Error Debug]: Camera capture error:', err);
+            showDebugBanner('error', 'Camera Error', 'Could not capture photo.');
+          }
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const handleToggleNotifications = async (val: boolean) => {

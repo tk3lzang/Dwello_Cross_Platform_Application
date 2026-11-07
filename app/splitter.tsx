@@ -14,13 +14,19 @@ import {
   ScrollView,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
-import { calculateExpenseSplit, formatNu, generateWhatsAppSplitMessage } from '@/utils/splitter';
-import { openWhatsAppChat } from '@/utils/linking';
+import {
+  calculateExpenseSplit,
+  formatNu,
+  generateWhatsAppSplitMessage,
+} from '@/utils/splitter';
+import { sendWhatsAppWithFallback } from '@/utils/linking';
 import { useDebug } from '@/context/DebugContext';
 
 export default function SplitterScreen() {
@@ -35,8 +41,21 @@ export default function SplitterScreen() {
   const [water, setWater] = useState('500');
   const [wifi, setWifi] = useState('1500');
   const [maintenance, setMaintenance] = useState('0');
-  const [roommateCount, setRoommateCount] = useState(3);
-  const [occupantNames, setOccupantNames] = useState<string[]>(['Karma', 'Sonam', 'Tandin']);
+
+  // Dynamic Contact Management (No hardcoded mock accounts)
+  const [contacts, setContacts] = useState<{ id: string; name: string; phone: string }[]>([
+    { id: 'c1', name: 'Karma', phone: '17123456' },
+    { id: 'c2', name: 'Sonam', phone: '77654321' },
+  ]);
+  const [newContactName, setNewContactName] = useState('');
+  const [newContactPhone, setNewContactPhone] = useState('');
+  const [showAddContactForm, setShowAddContactForm] = useState(false);
+
+  const roommateCount = Math.max(1, contacts.length);
+  const occupantNames = useMemo(
+    () => contacts.map((c, i) => c.name.trim() || `Roommate ${i + 1}`),
+    [contacts]
+  );
 
   // Calculate whenever values change
   const splitResult = useMemo(() => {
@@ -51,39 +70,122 @@ export default function SplitterScreen() {
     });
   }, [baseRent, electricity, water, wifi, maintenance, roommateCount, occupantNames]);
 
-  const handleIncrementRoommates = () => {
-    const nextCount = roommateCount + 1;
-    setRoommateCount(nextCount);
-    setOccupantNames((prev) => [...prev, `Roommate ${nextCount}`]);
+  const handleAddContact = () => {
+    if (!newContactName.trim()) {
+      showDebugBanner('warning', 'Name Required', 'Please enter a name for the roommate.');
+      return;
+    }
+    const newContact = {
+      id: `contact-${Date.now()}`,
+      name: newContactName.trim(),
+      phone: newContactPhone.trim(),
+    };
+    console.log('[Dwello-Splitter Debug]: Adding custom contact:', newContact);
+    setContacts((prev) => [...prev, newContact]);
+    setNewContactName('');
+    setNewContactPhone('');
+    setShowAddContactForm(false);
+    showDebugBanner('success', 'Contact Added', `${newContact.name} added to rent splitter.`);
   };
 
-  const handleDecrementRoommates = () => {
-    if (roommateCount > 1) {
-      const nextCount = roommateCount - 1;
-      setRoommateCount(nextCount);
-      setOccupantNames((prev) => prev.slice(0, nextCount));
+  const handleRemoveContact = (id: string, name: string) => {
+    console.log(`[Dwello-Splitter Debug]: Removing contact id=${id}, name=${name}`);
+    setContacts((prev) => prev.filter((c) => c.id !== id));
+    showDebugBanner('info', 'Contact Removed', `${name} removed from split.`);
+  };
+
+  const updateContact = (id: string, field: 'name' | 'phone', value: string) => {
+    setContacts((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
+  };
+
+  // Context-Aware Messaging Router with direct targeting and graceful fallback
+  const handleContextAwareShare = async () => {
+    if (contacts.length === 0) {
+      showDebugBanner('warning', 'No Roommates', 'Please add at least one roommate contact.');
+      return;
+    }
+
+    if (contacts.length === 1) {
+      // Single Individual Split: Direct pre-formatted WhatsApp chat to that person's phone
+      const single = contacts[0];
+      console.log(`[Dwello-WhatsApp Debug]: Routing single individual chat for ${single.name} (${single.phone})`);
+      const msg = generateWhatsAppSplitMessage(splitResult, single.name || 'Flatmate', 1, 1);
+      const res = await sendWhatsAppWithFallback(single.phone, msg);
+      if (!res.success && res.copiedToClipboard) {
+        showDebugBanner(
+          'warning',
+          'Number not on WhatsApp — message copied to clipboard',
+          'Message copied. You can paste and send via SMS.'
+        );
+      } else if (res.success) {
+        showDebugBanner('success', 'WhatsApp Launched', `Opened direct WhatsApp chat for ${single.name}.`);
+      }
+    } else {
+      // Group Batch Processing: Send directly to each individual phone while continuing if any number fails
+      console.log(`[Dwello-WhatsApp Debug]: Routing batch direct reminders for ${contacts.length} occupants`);
+      let successCount = 0;
+
+      for (let i = 0; i < contacts.length; i++) {
+        const contact = contacts[i];
+        const msg = generateWhatsAppSplitMessage(splitResult, contact.name || `Roommate ${i + 1}`, i + 1, contacts.length);
+        const res = await sendWhatsAppWithFallback(contact.phone, msg);
+
+        if (res.success) {
+          successCount++;
+        } else {
+          // Display graceful toast per directive and continue batch
+          showDebugBanner(
+            'warning',
+            'Number not on WhatsApp — message copied to clipboard',
+            `${contact.name}: Number not on WhatsApp — message copied to clipboard`
+          );
+        }
+      }
+
+      if (successCount > 0) {
+        showDebugBanner('success', 'Batch Complete', `Sent reminders to ${successCount} roommate(s).`);
+      }
     }
   };
 
-  const updateOccupantName = (index: number, name: string) => {
-    setOccupantNames((prev) => {
-      const copy = [...prev];
-      copy[index] = name;
-      return copy;
-    });
+  const handleDirectContactShare = async (contact: { id: string; name: string; phone: string }, index: number) => {
+    console.log(`[Dwello-WhatsApp Debug]: Direct WhatsApp share targeted to ${contact.name} (${contact.phone})`);
+    const msg = generateWhatsAppSplitMessage(splitResult, contact.name || `Roommate ${index + 1}`, index + 1, contacts.length);
+    const result = await sendWhatsAppWithFallback(contact.phone, msg);
+    if (!result.success && result.copiedToClipboard) {
+      showDebugBanner(
+        'warning',
+        'Number not on WhatsApp — message copied to clipboard',
+        `Could not open WhatsApp for ${contact.name}. Message copied to clipboard.`
+      );
+    } else if (result.success) {
+      showDebugBanner('success', 'WhatsApp Launched', `Opened direct chat for ${contact.name}.`);
+    }
   };
 
-  const handleShareWhatsAppGeneral = () => {
-    console.log('[Dwello-Splitter Debug]: Sharing general breakdown via WhatsApp');
-    const msg = generateWhatsAppSplitMessage(splitResult, 'Flatmates', 1, roommateCount);
-    openWhatsAppChat(undefined, msg);
-    showDebugBanner('success', 'WhatsApp Launched', 'Shared cost breakdown generated.');
+  const handleCopyBreakdown = async (contact: { id: string; name: string; phone: string }, index: number) => {
+    const msg = generateWhatsAppSplitMessage(splitResult, contact.name || `Roommate ${index + 1}`, index + 1, contacts.length);
+    try {
+      await Clipboard.setStringAsync(msg);
+      showDebugBanner('success', 'Copied to Clipboard', `Payment share for ${contact.name} copied.`);
+    } catch {
+      showDebugBanner('error', 'Copy Failed', 'Unable to copy text to clipboard.');
+    }
   };
 
-  const handleShareSpecificOccupant = (name: string, index: number) => {
-    console.log(`[Dwello-Splitter Debug]: Sharing individual breakdown for ${name}`);
-    const msg = generateWhatsAppSplitMessage(splitResult, name, index + 1, roommateCount);
-    openWhatsAppChat(undefined, msg);
+  const confirmAndSendReminders = () => {
+    Alert.alert(
+      'Send Reminders',
+      contacts.length === 1
+        ? `Open WhatsApp to send payment breakdown to ${contacts[0].name}?`
+        : `Send individual WhatsApp payment reminders to all ${contacts.length} roommates?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Send', onPress: () => handleContextAwareShare() },
+      ]
+    );
   };
 
   return (
@@ -172,27 +274,114 @@ export default function SplitterScreen() {
           </View>
         </View>
 
-        {/* Number of Roommates Stepper (Manual Page 12 & 17) */}
-        <View style={styles.stepperContainer}>
+        {/* Roommates & Contacts Management Header */}
+        <View style={styles.contactsHeaderRow}>
           <View>
-            <Text style={styles.stepperTitle}>Number of Roommates</Text>
-            <Text style={styles.stepperSubtitle}>Total people splitting costs</Text>
+            <Text style={styles.contactsHeaderTitle}>Roommates & Contacts ({contacts.length})</Text>
+            <Text style={styles.contactsHeaderSubtitle}>Add contacts to split costs evenly</Text>
           </View>
+          <TouchableOpacity
+            onPress={() => setShowAddContactForm(!showAddContactForm)}
+            style={styles.addContactToggleBtn}>
+            <Ionicons
+              name={showAddContactForm ? 'close-circle' : 'person-add'}
+              size={18}
+              color="#FFFFFF"
+              style={{ marginRight: 6 }}
+            />
+            <Text style={styles.addContactToggleText}>
+              {showAddContactForm ? 'Cancel' : 'Add Contact'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.stepperControls}>
+        {/* Dynamic Add Contact Form */}
+        {showAddContactForm && (
+          <View style={styles.addContactFormCard}>
+            <Text style={styles.addContactFormTitle}>New Roommate Contact</Text>
+            <TextInput
+              style={styles.contactFormInput}
+              value={newContactName}
+              onChangeText={setNewContactName}
+              placeholder="Contact Name (e.g. Dechen)"
+              placeholderTextColor="#9CA3AF"
+            />
+            <TextInput
+              style={[styles.contactFormInput, { marginTop: 8 }]}
+              value={newContactPhone}
+              onChangeText={setNewContactPhone}
+              placeholder="WhatsApp Phone (e.g. 17123456)"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="phone-pad"
+            />
             <TouchableOpacity
-              onPress={handleDecrementRoommates}
-              disabled={roommateCount <= 1}
-              style={[styles.stepBtn, roommateCount <= 1 && styles.disabledStepBtn]}>
-              <Ionicons name="remove-circle-outline" size={24} color={roommateCount <= 1 ? '#D1D5DB' : DwelloColors.primary} />
-            </TouchableOpacity>
-
-            <Text style={styles.stepCountText}>{roommateCount}</Text>
-
-            <TouchableOpacity onPress={handleIncrementRoommates} style={styles.stepBtn}>
-              <Ionicons name="add-circle-outline" size={24} color={DwelloColors.primary} />
+              onPress={handleAddContact}
+              activeOpacity={0.88}
+              style={styles.submitNewContactBtn}>
+              <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.submitNewContactText}>Save Contact</Text>
             </TouchableOpacity>
           </View>
+        )}
+
+        {/* Dynamic Contacts List */}
+        <View style={styles.contactsListContainer}>
+          {contacts.map((contact, idx) => (
+            <View key={contact.id} style={styles.occupantCard}>
+              <View style={styles.occupantLeft}>
+                <Ionicons
+                  name="person-circle-outline"
+                  size={32}
+                  color="#6B7280"
+                  style={{ marginRight: 8 }}
+                />
+                <View style={styles.occupantInputCol}>
+                  <TextInput
+                    style={styles.occupantNameInput}
+                    value={contact.name}
+                    onChangeText={(txt) => updateContact(contact.id, 'name', txt)}
+                    placeholder={`Roommate ${idx + 1}`}
+                  />
+                  <TextInput
+                    style={styles.occupantPhoneInput}
+                    value={contact.phone}
+                    onChangeText={(txt) => updateContact(contact.id, 'phone', txt)}
+                    placeholder="WhatsApp No. (e.g. 17123456)"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="phone-pad"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.occupantRight}>
+                <Text style={styles.occupantShareText}>{formatNu(splitResult.perPersonShare)}</Text>
+                {/* Copy Individual Breakdown Action */}
+                <TouchableOpacity
+                  onPress={() => handleCopyBreakdown(contact, idx)}
+                  style={styles.occupantCopyBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  accessibilityLabel={`Copy breakdown for ${contact.name}`}>
+                  <Ionicons name="copy-outline" size={15} color="#4B5563" />
+                </TouchableOpacity>
+                {/* Direct WhatsApp Action */}
+                <TouchableOpacity
+                  onPress={() => handleDirectContactShare(contact, idx)}
+                  style={styles.occupantShareBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  accessibilityLabel={`Send WhatsApp to ${contact.name}`}>
+                  <Ionicons name="logo-whatsapp" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+                {/* Remove Contact Action */}
+                <TouchableOpacity
+                  onPress={() => handleRemoveContact(contact.id, contact.name)}
+                  style={styles.removeContactBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  accessibilityLabel={`Remove ${contact.name}`}>
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
         </View>
 
         {/* Calculation Result Summary Card (Manual Page 12 & 17) */}
@@ -235,38 +424,17 @@ export default function SplitterScreen() {
           )}
         </View>
 
-        {/* Individual Roommates List */}
-        <Text style={styles.occupantsSectionTitle}>Individual Occupant Shares</Text>
-        {splitResult.individualBreakdowns.map((occ, idx) => (
-          <View key={idx} style={styles.occupantCard}>
-            <View style={styles.occupantLeft}>
-              <Ionicons name="person-circle-outline" size={26} color="#6B7280" style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.occupantNameInput}
-                value={occ.occupantName}
-                onChangeText={(txt) => updateOccupantName(idx, txt)}
-                placeholder={`Roommate ${idx + 1}`}
-              />
-            </View>
-
-            <View style={styles.occupantRight}>
-              <Text style={styles.occupantShareText}>{formatNu(occ.shareAmount)}</Text>
-              <TouchableOpacity
-                onPress={() => handleShareSpecificOccupant(occ.occupantName, idx)}
-                style={styles.occupantShareBtn}>
-                <Ionicons name="logo-whatsapp" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
-
-        {/* Share via WhatsApp CTA Button (Manual Page 12 & 17) */}
+        {/* Context-Aware WhatsApp CTA Button (Single Direct vs Group Breakdown with Confirmation) */}
         <TouchableOpacity
-          onPress={handleShareWhatsAppGeneral}
+          onPress={confirmAndSendReminders}
           activeOpacity={0.88}
           style={styles.whatsAppShareBtn}>
-          <Ionicons name="chatbubble-ellipses" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-          <Text style={styles.whatsAppShareText}>Share via WhatsApp</Text>
+          <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+          <Text style={styles.whatsAppShareText}>
+            {contacts.length <= 1
+              ? `Message ${contacts[0]?.name || 'Roommate'} on WhatsApp`
+              : `Send WhatsApp Reminders (${contacts.length} Roommates)`}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -364,7 +532,7 @@ const styles = StyleSheet.create({
     color: '#111827',
     padding: 0,
   },
-  stepperContainer: {
+  contactsHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -372,34 +540,83 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: '#F3F4F6',
-    marginBottom: 20,
+    marginBottom: 14,
   },
-  stepperTitle: {
+  contactsHeaderTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: '#111827',
   },
-  stepperSubtitle: {
+  contactsHeaderSubtitle: {
     fontSize: 12,
     color: '#9CA3AF',
   },
-  stepperControls: {
+  addContactToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    backgroundColor: DwelloColors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
-  stepBtn: {
-    padding: 4,
+  addContactToggleText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
-  disabledStepBtn: {
-    opacity: 0.4,
+  addContactFormCard: {
+    backgroundColor: '#F9FAFB',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 16,
   },
-  stepCountText: {
-    fontSize: 18,
-    fontWeight: '800',
+  addContactFormTitle: {
+    fontSize: 13,
+    fontWeight: '700',
     color: '#111827',
-    minWidth: 20,
-    textAlign: 'center',
+    marginBottom: 8,
+  },
+  contactFormInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#111827',
+  },
+  submitNewContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: DwelloColors.primary,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  submitNewContactText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  contactsListContainer: {
+    marginBottom: 16,
+  },
+  occupantInputCol: {
+    flex: 1,
+  },
+  occupantPhoneInput: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+    padding: 0,
+  },
+  removeContactBtn: {
+    padding: 6,
+    marginLeft: 4,
   },
   summaryCard: {
     backgroundColor: '#FFF5F6',
@@ -498,6 +715,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#111827',
+  },
+  occupantCopyBtn: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   occupantShareBtn: {
     backgroundColor: DwelloColors.whatsappGreen,

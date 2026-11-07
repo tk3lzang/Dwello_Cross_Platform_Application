@@ -6,20 +6,21 @@
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, Text, Animated } from 'react-native';
+import { StyleSheet, View, Animated, Easing } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { DebugProvider } from '@/context/DebugContext';
+import { DebugProvider, useDebug } from '@/context/DebugContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { WishlistProvider } from '@/context/WishlistContext';
 import { ListingsProvider } from '@/context/ListingsContext';
 import { DebugBanner } from '@/components/DebugBanner';
+import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { DatabaseService } from '@/services/database';
+import { OfflineSyncService } from '@/services/offlineSync';
 import { DwelloLogo } from '@/components/DwelloLogo';
-import { DwelloColors } from '@/constants/Colors';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -96,35 +97,155 @@ function AuthNavigationWatcher({ onReady }: { onReady: () => void }) {
   return null;
 }
 
+/**
+ * Global Root Toast Portal
+ * Renders toast notifications in the foreground above all screens, cards, and bottom sheets.
+ * Styled with zIndex: 99999, elevation: 9999, pointerEvents: 'box-none'.
+ * [Dwello-Toast Portal]
+ */
+function ToastPortal() {
+  const { banner } = useDebug();
+
+  useEffect(() => {
+    if (banner) {
+      console.log(`[Dwello-Toast Portal]: Toast mounted at root portal level (${banner.type.toUpperCase()}): "${banner.title || banner.message}"`);
+    }
+  }, [banner]);
+
+  return (
+    <View pointerEvents="box-none" style={styles.toastPortalHost}>
+      <DebugBanner />
+    </View>
+  );
+}
+
 export default function RootLayout() {
   const [splashVisible, setSplashVisible] = useState(true);
-  const [splashOpacity] = useState(() => new Animated.Value(1));
+  const splashOpacity = useRef(new Animated.Value(1)).current;
 
-  const handleAppReady = useCallback(() => {
-    // Smooth fade out of animated startup splash
+  // Premium Apple-inspired coordinated entrance animation values
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.92)).current;
+  const wordmarkOpacity = useRef(new Animated.Value(0)).current;
+  const wordmarkTranslateY = useRef(new Animated.Value(14)).current;
+
+  // Synchronization refs for multi-stage splash lifecycle
+  const appMountedAt = useRef<number>(0);
+  const isAppPrepared = useRef(false);
+  const isAuthChecked = useRef(false);
+  const splashHiddenRef = useRef(false);
+
+  // Coordinated entrance animation sequence
+  useEffect(() => {
+    if (appMountedAt.current === 0) {
+      appMountedAt.current = Date.now();
+    }
+
+    // 1. Logo entrance: Fade in from 0 opacity & scale from 0.92 to 1.0 (Duration: 1000ms, smooth cubic ease)
+    Animated.parallel([
+      Animated.timing(logoOpacity, {
+        toValue: 1,
+        duration: 1000,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoScale, {
+        toValue: 1,
+        duration: 1000,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // 2. Wordmark entrance: Begins ~450ms after logo animation starts, fades in & floats upwards (Duration: 700ms)
+    const wordmarkTimer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(wordmarkOpacity, {
+          toValue: 1,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(wordmarkTranslateY, {
+          toValue: 0,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 450);
+
+    return () => clearTimeout(wordmarkTimer);
+  }, [logoOpacity, logoScale, wordmarkOpacity, wordmarkTranslateY]);
+
+  const attemptSplashDismissal = useCallback(async () => {
+    if (!isAppPrepared.current || !isAuthChecked.current) {
+      return;
+    }
+
+    const elapsed = appMountedAt.current > 0 ? Date.now() - appMountedAt.current : 1800;
+    const remaining = Math.max(0, 1800 - elapsed);
+    if (remaining > 0) {
+      console.log(`[Dwello-Splash Fix]: Holding splash for remaining ${remaining}ms to satisfy 1800ms threshold`);
+      await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+    }
+
+    if (!splashHiddenRef.current) {
+      splashHiddenRef.current = true;
+      console.log('[Dwello-Splash Fix]: All bootstrap & auth checks complete + 1800ms elapsed. Hiding native splash.');
+      await SplashScreen.hideAsync().catch((err) =>
+        console.warn('[Dwello-Splash Fix]: hideAsync warning:', err)
+      );
+    }
+
+    // Smooth transition exit when app initialization & auth check are completed
+    console.log('[Dwello-Splash Fix]: App ready — beginning animated splash fade-out');
     Animated.timing(splashOpacity, {
       toValue: 0,
-      duration: 420,
+      duration: 400,
+      easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start(() => {
       setSplashVisible(false);
     });
-  }, [splashOpacity]);
+  }, [appMountedAt, splashOpacity]);
+
+  const handleAuthReady = useCallback(() => {
+    console.log('[Dwello-Splash Fix]: Supabase auth session check completed.');
+    isAuthChecked.current = true;
+    attemptSplashDismissal();
+  }, [attemptSplashDismissal]);
 
   useEffect(() => {
+    let safetyTimer: ReturnType<typeof setTimeout>;
+
     async function prepareApp() {
-      console.log('[Dwello-DB Debug]: Bootstrapping Dwello Mobile Application...');
+      console.log('[Dwello-Splash Fix]: Bootstrapping Dwello Mobile Application...');
       try {
+        OfflineSyncService.init();
         await DatabaseService.initialize();
       } catch (e) {
         console.error('[Dwello-Error Catch]: Error during app bootstrap initialization:', e);
       } finally {
-        await SplashScreen.hideAsync();
+        isAppPrepared.current = true;
+        attemptSplashDismissal();
       }
+
+      // Safeguard: Ensure animated splash exits even if remote network auth hangs indefinitely
+      safetyTimer = setTimeout(() => {
+        console.log('[Dwello-Splash Fix]: Safety timer triggered (5500ms) — forcing splash exit');
+        isAppPrepared.current = true;
+        isAuthChecked.current = true;
+        attemptSplashDismissal();
+      }, 5500);
     }
 
     prepareApp();
-  }, []);
+
+    return () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
+    };
+  }, [attemptSplashDismissal]);
 
   return (
     <SafeAreaProvider>
@@ -133,8 +254,7 @@ export default function RootLayout() {
           <WishlistProvider>
             <ListingsProvider>
               <StatusBar style="dark" />
-              <DebugBanner />
-              <AuthNavigationWatcher onReady={handleAppReady} />
+              <AuthNavigationWatcher onReady={handleAuthReady} />
               <Stack
                 screenOptions={{
                   headerShown: false,
@@ -165,8 +285,8 @@ export default function RootLayout() {
                   name="listing/[id]"
                   options={{
                     headerShown: false,
-                    presentation: 'modal',
-                    animation: 'slide_from_bottom',
+                    presentation: 'card',
+                    animation: 'slide_from_right',
                   }}
                 />
                 <Stack.Screen
@@ -204,9 +324,25 @@ export default function RootLayout() {
                     presentation: 'modal',
                   }}
                 />
+                <Stack.Screen
+                  name="public-profile/[userId]"
+                  options={{
+                    headerShown: false,
+                    presentation: 'card',
+                    animation: 'slide_from_right',
+                  }}
+                />
               </Stack>
 
-              {/* Startup Animated Splash Overlay with Dwello house & coral pin logo */}
+              {/* Global Toast Portal — rendered above React Navigation stack and active UI */}
+              <ToastPortal />
+
+              {/* Offline Indicator — positioned in normal view hierarchy below modals */}
+              <View pointerEvents="box-none" style={styles.offlinePortal}>
+                <OfflineIndicator />
+              </View>
+
+              {/* Startup Animated Splash Overlay with Dwello house & coral pin logo (Module 3) */}
               {splashVisible && (
                 <Animated.View
                   pointerEvents="none"
@@ -214,14 +350,31 @@ export default function RootLayout() {
                     styles.animatedSplashOverlay,
                     { opacity: splashOpacity },
                   ]}>
-                  <DwelloLogo
-                    size={110}
-                    houseColor={DwelloColors.primary}
-                    pinColor="#FFFFFF"
-                    innerDotColor={DwelloColors.primary}
-                  />
-                  <Text style={styles.splashTitle}>Dwello.</Text>
-                  <Text style={styles.splashSubtitle}>Find your home in Bhutan</Text>
+                  <View style={styles.splashContent}>
+                    <Animated.View
+                      style={{
+                        opacity: logoOpacity,
+                        transform: [{ scale: logoScale }],
+                      }}>
+                      <DwelloLogo
+                        size={96}
+                        houseColor="#FF3158"
+                        pinColor="#FFFFFF"
+                        innerDotColor="#FF3158"
+                      />
+                    </Animated.View>
+
+                    <Animated.Text
+                      style={[
+                        styles.splashWordmark,
+                        {
+                          opacity: wordmarkOpacity,
+                          transform: [{ translateY: wordmarkTranslateY }],
+                        },
+                      ]}>
+                      DWELLO
+                    </Animated.Text>
+                  </View>
                 </Animated.View>
               )}
             </ListingsProvider>
@@ -233,6 +386,25 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  offlinePortal: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    elevation: 9999,
+    pointerEvents: 'box-none',
+  },
+  toastPortalHost: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    zIndex: 99999,
+    elevation: 9999,
+    pointerEvents: 'box-none',
+  },
   animatedSplashOverlay: {
     position: 'absolute',
     top: 0,
@@ -244,17 +416,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 999999,
   },
-  splashTitle: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: '#111827',
-    marginTop: 18,
-    letterSpacing: -0.5,
+  splashContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  splashSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 6,
-    fontWeight: '500',
+  splashWordmark: {
+    fontSize: 28,
+    fontWeight: '600',
+    color: '#202124',
+    letterSpacing: 4.5,
+    marginTop: 24,
   },
 });

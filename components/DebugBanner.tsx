@@ -1,86 +1,70 @@
 /**
- * Modern In-App Toast & Feedback Banner Component
- * Matches the cohesive iOS / Material 3 design system of Dwello.
- * Displays as a floating, sleek dark pill/capsule below the status bar with auto-dismiss
- * and intuitive multi-directional Swipe-to-Dismiss gesture support (Swipe Up, Left, or Right).
+ * Sleek Apple-Style Toaster Notification Component
+ * Features dark pill capsule design, haptic feedback via expo-haptics,
+ * spring entrance/exit physics via react-native-reanimated,
+ * and intuitive multi-directional Swipe-to-Dismiss gestures (Up, Left, Right).
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
   View,
-  TouchableOpacity,
-  Animated,
   PanResponder,
   Platform,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDebug } from '@/context/DebugContext';
-import { Ionicons } from '@expo/vector-icons';
 
-let bannerTimerId: ReturnType<typeof setTimeout> | null = null;
-let isBannerDismissing = false;
-
-export function DebugBanner() {
+export function DebugBanner({ insideModal = false }: { insideModal?: boolean }) {
   const { banner, dismissBanner } = useDebug();
   const insets = useSafeAreaInsets();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Animated values for entrance, exit, and pan gestures
-  const [translateY] = useState(() => new Animated.Value(-120));
-  const [translateX] = useState(() => new Animated.Value(0));
-  const [opacity] = useState(() => new Animated.Value(0));
+  const translateY = useSharedValue(-120);
+  const translateX = useSharedValue(0);
+  const opacity = useSharedValue(0);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
   const handleDismiss = useCallback(
-    (direction: 'up' | 'left' | 'right' | 'fade' = 'up') => {
-      if (isBannerDismissing) return;
-      isBannerDismissing = true;
+    (direction: 'up' | 'left' | 'right' = 'up') => {
+      console.log(`[Dwello-Toast Portal]: Dismissing toast (direction: ${direction}${insideModal ? ', inside modal' : ''})`);
+      clearTimer();
 
-      if (bannerTimerId) {
-        clearTimeout(bannerTimerId);
-        bannerTimerId = null;
-      }
+      let targetX = 0;
+      let targetY = -120;
+      if (direction === 'left') targetX = -400;
+      if (direction === 'right') targetX = 400;
 
-      let toY = -120;
-      let toX = 0;
-
-      if (direction === 'left') {
-        toX = -400;
-        toY = 0;
-      } else if (direction === 'right') {
-        toX = 400;
-        toY = 0;
-      }
-
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: toY,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateX, {
-          toValue: toX,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        dismissBanner();
-        translateY.setValue(-120);
-        translateX.setValue(0);
-        opacity.setValue(0);
-        isBannerDismissing = false;
+      translateX.value = withTiming(targetX, { duration: 180 });
+      translateY.value = withTiming(targetY, { duration: 180 });
+      opacity.value = withTiming(0, { duration: 160 }, () => {
+        runOnJS(dismissBanner)();
       });
     },
-    [translateY, translateX, opacity, dismissBanner]
+    [clearTimer, dismissBanner, translateX, translateY, opacity, insideModal]
   );
 
-  // PanResponder to handle tactile Swipe-to-Dismiss gestures (Up, Left, Right)
-  const [panResponder] = useState(() =>
+  const handleDismissRef = useRef(handleDismiss);
+  useEffect(() => {
+    handleDismissRef.current = handleDismiss;
+  }, [handleDismiss]);
+
+  const [panResponder] = React.useState(() =>
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
@@ -88,56 +72,38 @@ export function DebugBanner() {
         return Math.abs(dx) > 6 || dy < -6;
       },
       onPanResponderGrant: () => {
-        if (bannerTimerId) {
-          clearTimeout(bannerTimerId);
-          bannerTimerId = null;
-        }
+        clearTimer();
       },
       onPanResponderMove: (_, gestureState) => {
-        const { dx, dy } = gestureState;
-        translateX.setValue(dx);
-        if (dy < 0) {
-          translateY.setValue(dy);
+        translateX.value = gestureState.dx;
+        if (gestureState.dy < 0) {
+          translateY.value = gestureState.dy;
         }
       },
       onPanResponderRelease: (_, gestureState) => {
         const { dx, dy, vx, vy } = gestureState;
 
-        // Swiped UP
-        if (dy < -35 || vy < -0.5) {
-          handleDismiss('up');
+        // Multi-directional swipe dismiss checks: Up, Left, or Right
+        if (dy < -30 || vy < -0.4) {
+          handleDismissRef.current('up');
+          return;
+        }
+        if (dx > 50 || vx > 0.4) {
+          handleDismissRef.current('right');
+          return;
+        }
+        if (dx < -50 || vx < -0.4) {
+          handleDismissRef.current('left');
           return;
         }
 
-        // Swiped RIGHT
-        if (dx > 65 || vx > 0.5) {
-          handleDismiss('right');
-          return;
-        }
+        // Spring back smoothly if threshold wasn't reached
+        translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
+        translateY.value = withSpring(0, { damping: 15, stiffness: 150 });
 
-        // Swiped LEFT
-        if (dx < -65 || vx < -0.5) {
-          handleDismiss('left');
-          return;
-        }
-
-        // Reset if threshold wasn't met
-        Animated.parallel([
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 4,
-          }),
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 4,
-          }),
-        ]).start();
-
-        // Resume auto-dismiss timeout
-        bannerTimerId = setTimeout(() => {
-          handleDismiss('up');
+        // Resume 3-second auto-dismiss
+        timerRef.current = setTimeout(() => {
+          handleDismissRef.current('up');
         }, 3000);
       },
     })
@@ -145,106 +111,72 @@ export function DebugBanner() {
 
   useEffect(() => {
     if (banner) {
-      isBannerDismissing = false;
-      translateX.setValue(0);
+      console.log(`[Dwello-Toast Portal]: Displaying toast${insideModal ? ' inside native modal' : ' in root portal'}: "${banner.title || banner.message}" (type: ${banner.type})`);
+      clearTimer();
 
-      // Slide down and fade in
-      Animated.parallel([
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          bounciness: 5,
-          speed: 12,
-        }),
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      // Trigger subtle haptic feedback on banner appearance
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      } catch (err) {
+        console.log('[Dwello-Toast Portal]: Haptics unavailable on platform:', err);
+      }
 
-      // Auto-dismiss after 3.2 seconds
-      bannerTimerId = setTimeout(() => {
+      translateX.value = 0;
+      translateY.value = -120;
+      opacity.value = 0;
+
+      // Spring entrance
+      translateY.value = withSpring(0, {
+        damping: 15,
+        stiffness: 140,
+        mass: 0.8,
+      });
+      opacity.value = withTiming(1, { duration: 180 });
+
+      // 3-second auto-dismiss timeout
+      timerRef.current = setTimeout(() => {
         handleDismiss('up');
-      }, 3200);
+      }, 3000);
 
       return () => {
-        if (bannerTimerId) {
-          clearTimeout(bannerTimerId);
-          bannerTimerId = null;
-        }
+        clearTimer();
       };
     }
-  }, [banner, translateY, translateX, opacity, handleDismiss]);
+  }, [banner, handleDismiss, clearTimer, translateX, translateY, opacity, insideModal]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: translateY.value },
+      { translateX: translateX.value },
+    ],
+    opacity: opacity.value,
+  }));
 
   if (!banner) return null;
 
-  const getIconConfig = () => {
-    switch (banner.type) {
-      case 'error':
-        return {
-          icon: 'alert-circle' as const,
-          color: '#EF4444',
-          badgeBg: '#451A1A',
-        };
-      case 'warning':
-        return {
-          icon: 'warning' as const,
-          color: '#F59E0B',
-          badgeBg: '#452A10',
-        };
-      case 'info':
-        return {
-          icon: 'information-circle' as const,
-          color: '#3B82F6',
-          badgeBg: '#172554',
-        };
-      case 'success':
-      default:
-        return {
-          icon: 'checkmark-circle' as const,
-          color: '#10B981',
-          badgeBg: '#064E3B',
-        };
-    }
-  };
-
-  const iconConfig = getIconConfig();
+  // Primary label display
+  const primaryText = banner.title || banner.message;
+  const secondaryText =
+    banner.message && banner.message !== banner.title ? banner.message : null;
 
   return (
     <Animated.View
+      pointerEvents="box-none"
       {...panResponder.panHandlers}
       style={[
         styles.wrapper,
-        {
-          top: insets.top + (Platform.OS === 'ios' ? 6 : 12),
-          transform: [{ translateY }, { translateX }],
-          opacity,
-        },
+        { top: insets.top + (Platform.OS === 'ios' ? 8 : 14) },
+        animatedStyle,
       ]}>
-      <View style={styles.floatingCard}>
-        {/* Accent Status Icon */}
-        <View style={[styles.iconContainer, { backgroundColor: iconConfig.badgeBg }]}>
-          <Ionicons name={iconConfig.icon} size={18} color={iconConfig.color} />
-        </View>
-
-        {/* Text Content */}
-        <View style={styles.textContainer}>
-          <Text style={styles.title} numberOfLines={1}>
-            {banner.title}
+      <View style={styles.darkPill} pointerEvents="auto">
+        <Text style={styles.pillText} numberOfLines={1}>
+          {primaryText}
+        </Text>
+        {secondaryText && (
+          <Text style={styles.pillSubtext} numberOfLines={2}>
+            {secondaryText}
           </Text>
-          <Text style={styles.message} numberOfLines={2}>
-            {banner.message}
-          </Text>
-        </View>
-
-        {/* Swipe / Dismiss Cue */}
-        <TouchableOpacity
-          onPress={() => handleDismiss('up')}
-          style={styles.closeBtn}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="close" size={16} color="#9CA3AF" />
-        </TouchableOpacity>
+        )}
       </View>
     </Animated.View>
   );
@@ -255,57 +187,42 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    zIndex: 999999,
+    zIndex: 99999,
+    elevation: 9999,
     alignItems: 'center',
+    pointerEvents: 'box-none',
   },
-  floatingCard: {
+  darkPill: {
     width: '100%',
-    maxWidth: 440,
-    backgroundColor: '#1E293B',
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
+    maxWidth: 420,
+    backgroundColor: '#262626',
+    borderRadius: 14,
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.32,
+        shadowOpacity: 0.35,
         shadowRadius: 10,
       },
       android: {
-        elevation: 10,
+        elevation: 8,
       },
     }),
   },
-  iconContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  textContainer: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 13,
-    fontWeight: '700',
+  pillText: {
+    fontSize: 14,
+    fontWeight: '600',
     color: '#FFFFFF',
-    letterSpacing: 0.2,
+    letterSpacing: -0.1,
   },
-  message: {
+  pillSubtext: {
     fontSize: 12,
-    color: '#CBD5E1',
+    color: '#D1D5DB',
     lineHeight: 16,
     marginTop: 2,
-  },
-  closeBtn: {
-    padding: 6,
-    marginLeft: 8,
   },
 });

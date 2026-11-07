@@ -5,7 +5,7 @@
  * instant reactive storage resilience, and quick municipal zone filters.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -43,6 +43,9 @@ export default function ExploreScreen() {
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [selectedQuickZone, setSelectedQuickZone] = useState<string>('');
+  // Separate search input state from debounced query applied to filter
+  const [searchInput, setSearchInput] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [filters, setFilters] = useState<ListingFilterState>({
     category: 'Full Flat',
@@ -68,21 +71,42 @@ export default function ExploreScreen() {
   };
 
   const handleSearchChange = (text: string) => {
+    // Update visible input immediately for responsiveness
+    setSearchInput(text);
     // Clear zone filters when user types a custom search
     setSelectedQuickZone('');
-    setFilters((prev) => ({ ...prev, searchQuery: text, zoneArea: '' }));
+    // Debounce the actual filter update to prevent excessive re-renders during typing
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setFilters((prev) => ({ ...prev, searchQuery: text, zoneArea: '' }));
+    }, 280);
   };
 
   const clearSearch = () => {
+    setSearchInput('');
     setFilters((prev) => ({ ...prev, searchQuery: '' }));
   };
 
+  // Compute whether any non-default filters are active (for filter active indicator)
+  const hasActiveFilters = useMemo(() => {
+    return (
+      filters.bhkType !== 'Any' ||
+      filters.amenities.length > 0 ||
+      filters.roommatePreferences.length > 0 ||
+      (filters.maxRent > 0 && filters.maxRent < 100000) ||
+      (filters.municipalRegion !== undefined && filters.municipalRegion.trim().length > 0) ||
+      filters.sortBy !== 'Newest'
+    );
+  }, [filters]);
+
   const handleApplySuggestion = (suggestion: string) => {
+    setSearchInput(suggestion);
     setFilters((prev) => ({ ...prev, searchQuery: suggestion }));
   };
 
   const resetAllFilters = () => {
     setSelectedQuickZone('');
+    setSearchInput('');
     setFilters({
       category: 'Full Flat',
       searchQuery: '',
@@ -108,27 +132,39 @@ export default function ExploreScreen() {
               style={styles.input}
               placeholder="Find homes in Thimphu, Paro, and more"
               placeholderTextColor="#9CA3AF"
-              value={filters.searchQuery}
+              value={searchInput}
               onChangeText={handleSearchChange}
               returnKeyType="search"
+              accessibilityLabel="Search listings"
             />
           </View>
 
           {/* Clear text icon */}
-          {filters.searchQuery.length > 0 && (
-            <TouchableOpacity onPress={clearSearch} style={styles.clearSearchBtn}>
+          {searchInput.length > 0 && (
+            <TouchableOpacity onPress={clearSearch} style={styles.clearSearchBtn} accessibilityLabel="Clear search">
               <Ionicons name="close-circle" size={18} color="#9CA3AF" />
             </TouchableOpacity>
           )}
 
-          {/* Filter Modal Button */}
+          {/* Filter Modal Button — with active dot indicator */}
           <TouchableOpacity
             onPress={() => setIsFilterModalOpen(true)}
-            style={styles.filterBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="options-outline" size={20} color="#111827" />
+            style={[styles.filterBtn, hasActiveFilters && styles.filterBtnActive]}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel={hasActiveFilters ? 'Filters active — tap to edit' : 'Open filters'}>
+            <Ionicons name="options-outline" size={20} color={hasActiveFilters ? DwelloColors.primary : '#111827'} />
+            {hasActiveFilters && <View style={styles.filterActiveDot} />}
           </TouchableOpacity>
         </View>
+
+        {/* Active filters clear bar */}
+        {hasActiveFilters && (
+          <TouchableOpacity onPress={resetAllFilters} style={styles.clearFiltersBar} accessibilityLabel="Clear all active filters">
+            <Ionicons name="funnel-outline" size={12} color={DwelloColors.primary} style={{ marginRight: 4 }} />
+            <Text style={styles.clearFiltersText}>Filters active — tap to clear all</Text>
+            <Ionicons name="close" size={13} color={DwelloColors.primary} />
+          </TouchableOpacity>
+        )}
 
 
 
@@ -173,7 +209,10 @@ export default function ExploreScreen() {
       {/* Main Content: Instant List vs. Map without re-fetch lag */}
       <View style={styles.body}>
         {viewMode === 'map' ? (
-          <PropertyMap listings={filteredListings} />
+          <PropertyMap
+            listings={filteredListings}
+            searchLocation={searchInput || filters.searchQuery || selectedQuickZone}
+          />
         ) : (
           <FlatList
             data={filteredListings}
@@ -233,10 +272,17 @@ export default function ExploreScreen() {
           <TouchableOpacity
             activeOpacity={0.88}
             onPress={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
-            style={styles.floatingModeBtn}>
+            style={styles.floatingModeBtn}
+            accessibilityLabel={viewMode === 'list' ? 'Switch to map view' : 'Switch to list view'}>
             <Text style={styles.floatingModeText}>
-              {viewMode === 'list' ? 'Map 🗺️' : 'List 📋'}
+              {viewMode === 'list' ? 'Map' : 'List'}
             </Text>
+            <Ionicons
+              name={viewMode === 'list' ? 'map' : 'list'}
+              size={16}
+              color="#FFFFFF"
+              style={styles.floatingModeIcon}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -315,6 +361,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
     marginLeft: 4,
+    position: 'relative',
+  },
+  filterBtnActive: {
+    borderColor: DwelloColors.primary,
+    backgroundColor: DwelloColors.primaryLight,
+  },
+  filterActiveDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: DwelloColors.primary,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  clearFiltersBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: DwelloColors.primaryLight,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: DwelloColors.primaryBorder,
+    gap: 4,
+  },
+  clearFiltersText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: DwelloColors.primary,
+    flex: 1,
+    textAlign: 'center',
   },
   tabSwitcherWrapper: {
     flexDirection: 'row',
@@ -474,26 +557,39 @@ const styles = StyleSheet.create({
   },
   floatingModeWrapper: {
     position: 'absolute',
-    bottom: 24,
+    bottom: Platform.OS === 'ios' ? 44 : 38,
     left: 0,
     right: 0,
     alignItems: 'center',
     zIndex: 99,
   },
   floatingModeBtn: {
-    backgroundColor: '#111827',
+    backgroundColor: '#262626',
     paddingHorizontal: 20,
     paddingVertical: 11,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
+    borderRadius: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.28,
+        shadowRadius: 7,
+      },
+      android: {
+        elevation: 7,
+      },
+    }),
   },
   floatingModeText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  floatingModeIcon: {
+    marginLeft: 8,
   },
 });

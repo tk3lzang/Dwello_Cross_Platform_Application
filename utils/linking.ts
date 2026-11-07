@@ -5,10 +5,14 @@
  */
 
 import { Linking, Platform, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 
 export const APP_STORE_URL = 'https://apps.apple.com/app/dwello-bhutan/id02240180';
 export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.cst.dwello';
 export const UNIVERSAL_WEB_BASE = 'https://dwello.app';
+export const OFFICIAL_DWELLO_HELPLINE = '77924582';
+export const OFFICIAL_DWELLO_WHATSAPP_NUMBER = '97577924582';
+export const OFFICIAL_DWELLO_WHATSAPP_URI = 'whatsapp://send?phone=97577924582';
 
 export interface RichListingSharePayload {
   id: string;
@@ -72,24 +76,28 @@ export async function openStorePage(): Promise<void> {
 }
 
 /**
- * Opens WhatsApp conversation with a pre-filled text message.
- * Formats Bhutan country code (+975) for 8-digit numbers.
+ * Formats a phone number for direct WhatsApp deep-linking.
+ * Handles Bhutan 8-digit mobile numbers (+975 17xxxxxx / 77xxxxxx) and international formats.
+ */
+export function formatWhatsAppPhone(phone?: string): string {
+  if (!phone) return '';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 8) {
+    return `975${digits}`;
+  }
+  return digits;
+}
+
+/**
+ * Opens WhatsApp conversation directly targeted at a phone number with a pre-filled text message.
+ * Employs direct URI scheme `whatsapp://send?phone=[number]&text=[encoded_message]` to skip manual contact picker.
  *
  * @param phone 8-digit Bhutan phone number or international number
  * @param text Message to send
  */
 export async function openWhatsAppChat(phone?: string, text?: string): Promise<boolean> {
-  console.log('[Dwello-Linking Debug]: Attempting to open WhatsApp. Phone:', phone);
-
-  let formattedPhone = '';
-  if (phone) {
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length === 8) {
-      formattedPhone = `975${cleanPhone}`;
-    } else {
-      formattedPhone = cleanPhone;
-    }
-  }
+  const formattedPhone = formatWhatsAppPhone(phone);
+  console.log(`[Dwello-WhatsApp Debug]: Launching WhatsApp direct chat for phone: "${formattedPhone || 'general'}"`);
 
   const encodedText = text ? encodeURIComponent(text) : '';
   const nativeUrl = formattedPhone
@@ -102,26 +110,88 @@ export async function openWhatsAppChat(phone?: string, text?: string): Promise<b
 
   try {
     const supported = await Linking.canOpenURL(nativeUrl);
-    console.log('[Dwello-Linking Debug]: WhatsApp app installed check:', supported);
+    console.log('[Dwello-WhatsApp Debug]: WhatsApp native URL support check:', supported);
 
     if (supported) {
       await Linking.openURL(nativeUrl);
       return true;
     } else {
-      console.log('[Dwello-Linking Debug]: WhatsApp native URL not directly supported, falling back to web URL');
+      console.log('[Dwello-WhatsApp Debug]: Native WhatsApp app not found, falling back to web URL');
       await Linking.openURL(webUrl);
       return true;
     }
   } catch (error) {
-    console.error('[Dwello-Error Catch]: Failed to launch WhatsApp intent:', error);
+    console.error('[Dwello-WhatsApp Debug]: Failed to launch WhatsApp direct link:', error);
     try {
       await Linking.openURL(webUrl);
       return true;
     } catch (fallbackError) {
-      console.error('[Dwello-Error Catch]: Fallback WhatsApp web URL failed:', fallbackError);
+      console.error('[Dwello-WhatsApp Debug]: WhatsApp web fallback also failed:', fallbackError);
       return false;
     }
   }
+}
+
+/**
+ * Quick-link to launch official Dwello WhatsApp customer care chat: whatsapp://send?phone=97577924582
+ */
+export async function openOfficialSupportWhatsApp(customText?: string): Promise<boolean> {
+  const message = customText || 'Hello Dwello Support, I need assistance regarding a property listing on the app.';
+  return openWhatsAppChat(OFFICIAL_DWELLO_HELPLINE, message);
+}
+
+export interface WhatsAppSendResult {
+  success: boolean;
+  copiedToClipboard: boolean;
+  smsAvailable: boolean;
+  error?: string;
+}
+
+/**
+ * Direct WhatsApp sharing with graceful clipboard & SMS fallback.
+ * If number is missing, not registered, or intent fails, copies message to clipboard
+ * and optionally opens native SMS app.
+ */
+export async function sendWhatsAppWithFallback(
+  phone: string | undefined,
+  text: string
+): Promise<WhatsAppSendResult> {
+  console.log('[Dwello-WhatsApp Debug]: Initiating direct share with fallback checks...');
+
+  const formattedPhone = formatWhatsAppPhone(phone);
+
+  if (!formattedPhone) {
+    console.warn('[Dwello-WhatsApp Debug]: No valid phone provided, copying message to clipboard.');
+    try {
+      await Clipboard.setStringAsync(text);
+      return { success: false, copiedToClipboard: true, smsAvailable: false, error: 'Number not on WhatsApp — message copied to clipboard' };
+    } catch {
+      return { success: false, copiedToClipboard: false, smsAvailable: false, error: 'Clipboard copy failed' };
+    }
+  }
+
+  const success = await openWhatsAppChat(phone, text);
+
+  if (!success) {
+    console.warn('[Dwello-WhatsApp Debug]: WhatsApp launch failed. Copying message to clipboard & preparing SMS fallback.');
+    try {
+      await Clipboard.setStringAsync(text);
+      const encoded = encodeURIComponent(text);
+      const smsUrl = Platform.OS === 'ios' ? `sms:${formattedPhone}&body=${encoded}` : `sms:${formattedPhone}?body=${encoded}`;
+      const canSms = await Linking.canOpenURL(smsUrl).catch(() => false);
+
+      return {
+        success: false,
+        copiedToClipboard: true,
+        smsAvailable: canSms,
+        error: 'Number not on WhatsApp — message copied to clipboard',
+      };
+    } catch (e: any) {
+      return { success: false, copiedToClipboard: false, smsAvailable: false, error: e.message };
+    }
+  }
+
+  return { success: true, copiedToClipboard: false, smsAvailable: false };
 }
 
 /**

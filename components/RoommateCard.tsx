@@ -138,6 +138,32 @@ export function RoommateCard({ listing }: RoommateCardProps) {
             </View>
           ))}
         </View>
+
+        {/* Roommate Host Profile row */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            console.log('[Dwello-Navigation Fix]: Navigating from roommate card host avatar to full-screen profile:', listing.ownerName);
+            router.push({
+              pathname: '/public-profile/[userId]' as any,
+              params: {
+                userId: listing.ownerId,
+                ownerName: listing.ownerName,
+                ownerPhone: listing.ownerPhone,
+                ownerRole: listing.ownerRole || 'Roommate',
+                ownerAvatar: listing.ownerAvatar || '',
+              },
+            });
+          }}
+          style={styles.hostRow}
+          accessibilityLabel={`View ${listing.ownerName}'s profile`}>
+          <View style={styles.hostAvatarCircle}>
+            <Ionicons name="person-circle-outline" size={20} color="#6B7280" />
+          </View>
+          <Text style={styles.hostName}>{listing.ownerName}</Text>
+          <Ionicons name="chevron-forward" size={13} color="#9CA3AF" />
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -325,5 +351,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#374151',
     fontWeight: '500',
+  },
+  hostRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 6,
+  },
+  hostAvatarCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hostName: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+    flex: 1,
   },
 });

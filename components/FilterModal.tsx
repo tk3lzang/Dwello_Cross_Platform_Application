@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { ListingFilterState } from '@/types/listing';
 import { formatNu } from '@/utils/splitter';
+import { DebugBanner } from './DebugBanner';
 
 interface FilterModalProps {
   visible: boolean;
@@ -121,6 +122,11 @@ export function FilterModal({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.safeArea}>
+        {/* Toast Portal inside native Modal */}
+        <View pointerEvents="box-none" style={styles.modalToastContainer}>
+          <DebugBanner insideModal />
+        </View>
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -273,6 +279,15 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  modalToastContainer: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    zIndex: 99999,
+    elevation: 9999,
+    pointerEvents: 'box-none',
   },
   header: {
     flexDirection: 'row',

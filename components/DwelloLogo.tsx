@@ -17,9 +17,9 @@ interface DwelloLogoProps {
 
 export function DwelloLogo({
   size = 80,
-  houseColor = '#FF385C',
+  houseColor = '#FF3158',
   pinColor = '#FFFFFF',
-  innerDotColor = '#FF385C',
+  innerDotColor = '#FF3158',
 }: DwelloLogoProps) {
   return (
     <View style={[styles.container, { width: size, height: size }]}>

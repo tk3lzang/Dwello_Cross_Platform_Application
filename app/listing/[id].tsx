@@ -4,7 +4,7 @@
  * Photo carousel, property specifications, amenities, owner controls, and sticky contact dock (Call & WhatsApp).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -25,6 +25,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useListings } from '@/context/ListingsContext';
 import { useDebug } from '@/context/DebugContext';
+import { OfflineSyncService } from '@/services/offlineSync';
 import { formatNu } from '@/utils/splitter';
 import { openWhatsAppChat, callPhoneNumber, shareRichListing } from '@/utils/linking';
 
@@ -40,6 +41,13 @@ export default function ListingDetailScreen() {
   /** Reactive listing lookup from in-memory context — zero async latency */
   const listing = allListings.find((item) => item.id === id) || null;
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
+  // Cache viewed listing for offline persistence
+  useEffect(() => {
+    if (listing) {
+      OfflineSyncService.cacheViewedListing(listing);
+    }
+  }, [listing]);
 
   if (!listing) {
     return (
@@ -98,7 +106,7 @@ export default function ListingDetailScreen() {
           <PhotoCarousel images={listing.images} height={300} />
 
           {/* Floating Top Nav Overlay */}
-          <View style={[styles.navOverlay, { top: insets.top + 8 }]}>
+          <View style={[styles.navOverlay, { top: insets.top + 2 }]}>
             <TouchableOpacity onPress={() => router.back()} style={styles.roundNavBtn}>
               <Ionicons name="arrow-back" size={20} color="#111827" />
             </TouchableOpacity>
@@ -252,14 +260,30 @@ export default function ListingDetailScreen() {
       </ScrollView>
 
       {/* Sticky Contact Dock (Manual Section 4.1) */}
-      <View style={[styles.stickyContactDock, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <View style={styles.ownerInfoLeft}>
+      <View style={[styles.stickyContactDock, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        <TouchableOpacity
+          onPress={() => {
+            console.log('[Dwello-Navigation Debug]: Navigating from listing to host profile:', listing.ownerName);
+            router.push({
+              pathname: '/public-profile/[userId]' as any,
+              params: {
+                userId: listing.ownerId || 'host-profile',
+                ownerName: listing.ownerName,
+                ownerPhone: listing.ownerPhone,
+                ownerRole: listing.ownerRole,
+                ownerAvatar: listing.ownerAvatar,
+              },
+            });
+          }}
+          activeOpacity={0.7}
+          style={styles.ownerInfoLeft}
+          accessibilityLabel={`View ${listing.ownerName || 'host'}'s profile`}>
           <Avatar uri={listing.ownerAvatar} name={listing.ownerName || 'Sangay D'} size={44} />
           <View style={styles.ownerTextCol}>
             <Text style={styles.contactOwnerName}>{listing.ownerName || 'Sangay D'}</Text>
             <Text style={styles.contactOwnerRole}>{listing.ownerRole || 'Landlord / Host'}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.contactButtonsRow}>
           {/* Call Dialer Button */}
@@ -300,7 +324,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 110,
+    paddingBottom: 95,
   },
   carouselContainer: {
     position: 'relative',
@@ -332,7 +356,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   body: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 20,
   },
   titleHeaderRow: {
     flexDirection: 'row',
@@ -501,7 +527,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

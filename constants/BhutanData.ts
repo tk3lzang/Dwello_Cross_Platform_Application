@@ -64,6 +64,11 @@ export const AMENITIES_LIST = [
  * Used for smart fallback positioning when micro-map pins are omitted.
  */
 export const BHUTAN_ZONE_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
+  // Broad Town / Dzongkhag Centers
+  'Thimphu': { latitude: 27.4728, longitude: 89.6393 },
+  'Phuentsholing': { latitude: 26.8640, longitude: 89.3884 },
+  'Paro': { latitude: 27.4305, longitude: 89.4127 },
+  'Punakha': { latitude: 27.5810, longitude: 89.8630 },
   // Thimphu
   'Motithang': { latitude: 27.4725, longitude: 89.6258 },
   'Babesa': { latitude: 27.4285, longitude: 89.6582 },

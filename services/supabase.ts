@@ -1,6 +1,6 @@
 /**
  * Supabase Client Initialization Service
- * Equipped with structured console logging for CTE308 evaluation criteria.
+ 
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';

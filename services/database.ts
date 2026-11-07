@@ -1,15 +1,16 @@
 /**
  * Database & Listings Service for Dwello
  * Supports Supabase PostgreSQL integration with offline-resilient local cache fallback.
- * Includes complete structured logging for CTE308 evaluation criteria.
  */
 
-import { supabase, isSupabaseConfigured } from './supabase';
-import { StorageService } from './storage';
 import { INITIAL_SEED_LISTINGS } from '@/constants/BhutanData';
-import { PropertyListing, ListingFilterState, ReportListingPayload } from '@/types/listing';
+import { ListingFilterState, PropertyListing, ReportListingPayload } from '@/types/listing';
+import { OfflineSyncService } from './offlineSync';
+import { StorageService } from './storage';
+import { isSupabaseConfigured, supabase } from './supabase';
 
 let memoryListings: PropertyListing[] = [...INITIAL_SEED_LISTINGS];
+let memoryReports: ReportListingPayload[] = [];
 type ChangeListener = (listings: PropertyListing[]) => void;
 const listeners: Set<ChangeListener> = new Set();
 
@@ -125,8 +126,8 @@ export const DatabaseService = {
         result = result.filter((item) => item.category === filters.category);
       }
 
-      // Filter by status (public explore shows active listings)
-      result = result.filter((item) => item.status === 'active');
+      // Filter by status (public explore shows active listings not under scam/moderation review)
+      result = result.filter((item) => item.status === 'active' && !item.isFlaggedUnderReview);
 
       // Comprehensive search query matching title, area, region, description, bhk
       if (filters?.searchQuery && filters.searchQuery.trim().length > 0) {
@@ -193,6 +194,9 @@ export const DatabaseService = {
       }
 
       console.log(`[Dwello-DB Debug]: Filtered results count: ${result.length}`);
+      if (filters?.searchQuery && filters.searchQuery.trim().length > 0) {
+        OfflineSyncService.cacheSearchResults(filters.searchQuery, result);
+      }
       return result;
     } catch (error) {
       console.error('[Dwello-Error Debug]: Error in fetchListings:', error);
@@ -238,10 +242,12 @@ export const DatabaseService = {
 
       if (isSupabaseConfigured()) {
         try {
-          await supabase.from('listings').insert([newListing]);
-          console.log('[Dwello-DB Debug]: New listing persisted to Supabase.');
+          const { error } = await supabase.from('listings').insert([newListing]);
+          if (error) throw error;
+          console.log('[Dwello-Listings Debug]: New listing persisted to Supabase.');
         } catch (supaErr) {
-          console.warn('[Dwello-DB Debug]: Supabase insertion note:', supaErr);
+          console.warn('[Dwello-OfflineSync Debug]: Offline/Supabase error. Enqueueing create action:', supaErr);
+          await OfflineSyncService.enqueueAction('CREATE_LISTING', newListing);
         }
       }
 
@@ -289,7 +295,7 @@ export const DatabaseService = {
    * Updates tenancy status to 'rented' (Moves to archived)
    */
   async markAsRented(id: string): Promise<boolean> {
-    console.log(`[Dwello-DB Debug]: Marking listing ${id} as rented...`);
+    console.log(`[Dwello-Listings Debug]: Marking listing ${id} as rented...`);
     try {
       const target = memoryListings.find((item) => item.id === id);
       if (target) {
@@ -297,7 +303,23 @@ export const DatabaseService = {
         target.updatedAt = new Date().toISOString();
         await StorageService.setCachedListings(memoryListings);
         notifyListeners();
-        console.log(`[Dwello-DB Debug]: Listing ${id} is now RENTED.`);
+
+        // Supabase database mutation with offline queue fallback
+        if (isSupabaseConfigured()) {
+          try {
+            const { error } = await supabase
+              .from('listings')
+              .update({ status: 'rented', updated_at: target.updatedAt })
+              .eq('id', id);
+            if (error) throw error;
+            console.log(`[Dwello-Listings Debug]: Successfully updated listing ${id} to rented on Supabase.`);
+          } catch (supaErr) {
+            console.warn('[Dwello-OfflineSync Debug]: Offline - enqueueing markAsRented:', supaErr);
+            await OfflineSyncService.enqueueAction('UPDATE_LISTING_STATUS', { id, status: 'rented' });
+          }
+        }
+
+        console.log(`[Dwello-Listings Debug]: Listing ${id} is now RENTED.`);
         return true;
       }
       return false;
@@ -311,7 +333,7 @@ export const DatabaseService = {
    * Reposts an archived listing back to active public marketplace
    */
   async repostListing(id: string): Promise<boolean> {
-    console.log(`[Dwello-DB Debug]: Reposting listing ${id} back to active marketplace...`);
+    console.log(`[Dwello-Listings Debug]: Reposting listing ${id} back to active marketplace...`);
     try {
       const target = memoryListings.find((item) => item.id === id);
       if (target) {
@@ -319,7 +341,23 @@ export const DatabaseService = {
         target.updatedAt = new Date().toISOString();
         await StorageService.setCachedListings(memoryListings);
         notifyListeners();
-        console.log(`[Dwello-DB Debug]: Listing ${id} reposted successfully.`);
+
+        // Supabase database mutation with offline queue fallback
+        if (isSupabaseConfigured()) {
+          try {
+            const { error } = await supabase
+              .from('listings')
+              .update({ status: 'active', updated_at: target.updatedAt })
+              .eq('id', id);
+            if (error) throw error;
+            console.log(`[Dwello-Listings Debug]: Successfully reposted listing ${id} on Supabase.`);
+          } catch (supaErr) {
+            console.warn('[Dwello-OfflineSync Debug]: Offline - enqueueing repostListing:', supaErr);
+            await OfflineSyncService.enqueueAction('UPDATE_LISTING_STATUS', { id, status: 'active' });
+          }
+        }
+
+        console.log(`[Dwello-Listings Debug]: Listing ${id} reposted successfully.`);
         return true;
       }
       return false;
@@ -333,12 +371,25 @@ export const DatabaseService = {
    * Permanently deletes a listing
    */
   async deleteListing(id: string): Promise<boolean> {
-    console.log(`[Dwello-DB Debug]: Permanently deleting listing ${id}`);
+    console.log(`[Dwello-Listings Debug]: Permanently deleting listing ${id}`);
     try {
       memoryListings = memoryListings.filter((item) => item.id !== id);
       await StorageService.setCachedListings(memoryListings);
       notifyListeners();
-      console.log(`[Dwello-DB Debug]: Listing ${id} permanently removed.`);
+
+      // Supabase database mutation with offline queue fallback
+      if (isSupabaseConfigured()) {
+        try {
+          const { error } = await supabase.from('listings').delete().eq('id', id);
+          if (error) throw error;
+          console.log(`[Dwello-Listings Debug]: Listing ${id} deleted on Supabase.`);
+        } catch (supaErr) {
+          console.warn('[Dwello-OfflineSync Debug]: Offline - enqueueing deleteListing:', supaErr);
+          await OfflineSyncService.enqueueAction('DELETE_LISTING', { id });
+        }
+      }
+
+      console.log(`[Dwello-Listings Debug]: Listing ${id} permanently removed.`);
       return true;
     } catch (error) {
       console.error('[Dwello-Error Debug]: Error deleting listing:', error);
@@ -371,19 +422,98 @@ export const DatabaseService = {
 
   /**
    * Submits a listing moderation report to Supabase or logs locally
+   * Tracks status: pending, reviewed, actioned.
+   * Auto-flags listings exceeding report threshold or flagged as Scam / Fraud.
    */
   async reportListing(payload: ReportListingPayload): Promise<boolean> {
-    console.log('[Dwello-DB Debug]: Submitting listing report for moderation:', payload);
+    console.log('[Dwello-Moderation Debug]: Submitting listing report with status tracking:', payload);
     try {
-      if (isSupabaseConfigured()) {
-        const { error } = await supabase.from('reports').insert([payload]);
-        if (error) console.warn('[Dwello-DB Debug]: Supabase report insert note:', error);
+      const fullReport: ReportListingPayload = {
+        ...payload,
+        id: payload.id || `rep-${Date.now()}`,
+        status: payload.status || 'pending',
+        createdAt: payload.createdAt || new Date().toISOString(),
+        appealStatus: 'none',
+      };
+
+      memoryReports.push(fullReport);
+
+      // Check listing threshold & flag temporarily to protect marketplace
+      const target = memoryListings.find((item) => item.id === payload.listingId);
+      if (target) {
+        target.reportCount = (target.reportCount || 0) + 1;
+        // Scam / Fraud reports or >= 2 reports trigger temporary review hold & owner appeal window
+        if (payload.reason === 'Scam / Fraud' || target.reportCount >= 2) {
+          target.isFlaggedUnderReview = true;
+          target.appealWindowOpen = true;
+          console.log(`[Dwello-Moderation Debug]: Listing ${target.id} flagged under review (Total reports: ${target.reportCount}). Appeal window open.`);
+        }
+        await StorageService.setCachedListings(memoryListings);
+        notifyListeners();
       }
-      console.log(`[Dwello-DB Debug]: Report for listing ${payload.listingId} submitted successfully.`);
+
+      if (isSupabaseConfigured()) {
+        try {
+          const { error } = await supabase.from('reports').insert([fullReport]);
+          if (error) throw error;
+          console.log(`[Dwello-Moderation Debug]: Report for listing ${payload.listingId} persisted to Supabase with status ${fullReport.status}.`);
+        } catch (err) {
+          console.warn('[Dwello-OfflineSync Debug]: Offline - enqueueing report submission:', err);
+          await OfflineSyncService.enqueueAction('SUBMIT_REPORT', fullReport);
+        }
+      }
       return true;
     } catch (error) {
       console.error('[Dwello-Error Debug]: Failed to submit report:', error);
       return false;
     }
+  },
+
+  /**
+   * Submits counter-evidence / appeal for a flagged listing
+   */
+  async submitAppeal(listingId: string, appealNotes: string): Promise<boolean> {
+    console.log(`[Dwello-Moderation Debug]: Owner submitting appeal for listing ${listingId}:`, appealNotes);
+    try {
+      const target = memoryListings.find((item) => item.id === listingId);
+      if (target) {
+        target.appealSubmitted = true;
+        target.appealNotes = appealNotes;
+        target.isFlaggedUnderReview = false; // Restored upon appeal submission pending final review
+        await StorageService.setCachedListings(memoryListings);
+        notifyListeners();
+      }
+
+      // Update memory reports for this listing
+      memoryReports = memoryReports.map((r) =>
+        r.listingId === listingId
+          ? { ...r, appealNotes, appealStatus: 'pending', status: 'reviewed' }
+          : r
+      );
+
+      if (isSupabaseConfigured()) {
+        try {
+          await supabase
+            .from('reports')
+            .update({ status: 'reviewed', appeal_notes: appealNotes })
+            .eq('listing_id', listingId);
+        } catch (supaErr) {
+          console.warn('[Dwello-OfflineSync Debug]: Supabase appeal update queued:', supaErr);
+        }
+      }
+
+      console.log(`[Dwello-Moderation Debug]: Appeal for listing ${listingId} submitted successfully.`);
+      return true;
+    } catch (error) {
+      console.error('[Dwello-Error Debug]: Appeal submission failed:', error);
+      return false;
+    }
+  },
+
+  /**
+   * Retrieves reports for a listing
+   */
+  getListingReports(listingId: string): ReportListingPayload[] {
+    return memoryReports.filter((r) => r.listingId === listingId);
   },
 };

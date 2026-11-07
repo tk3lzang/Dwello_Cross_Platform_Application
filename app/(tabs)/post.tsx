@@ -28,6 +28,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useListings } from '@/context/ListingsContext';
 import { useDebug } from '@/context/DebugContext';
 import { validateBhutanPhone } from '@/utils/validation';
+import { ensureMediaLibraryPermission, ensureCameraPermission } from '@/utils/permissions';
 import { ListingCategory, BHKType, MunicipalRegion } from '@/types/listing';
 import { getZoneCoordinates } from '@/constants/BhutanData';
 
@@ -61,6 +62,8 @@ export default function PostListingScreen() {
     'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [selectedCoords, setSelectedCoords] = useState<{ latitude: number; longitude: number }>({
     latitude: 27.4728,
     longitude: 89.6393,
@@ -86,13 +89,12 @@ export default function PostListingScreen() {
     );
   };
 
-  const pickImage = async () => {
-    if (photos.length >= 5) {
-      Alert.alert('Maximum Photos', 'You can upload up to 5 photos per listing.');
-      return;
-    }
+  const handleLaunchLibrary = async () => {
+    const hasPermission = await ensureMediaLibraryPermission();
+    if (!hasPermission) return;
 
     try {
+      setIsUploadingImage(true);
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -102,44 +104,104 @@ export default function PostListingScreen() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const newUri = result.assets[0].uri;
-        console.log('[Dwello-DB Debug]: Photo picked:', newUri);
+        console.log('[Dwello-DB Debug]: Photo picked successfully:', newUri);
         setPhotos((prev) => [...prev, newUri]);
       }
     } catch (err: any) {
       console.error('[Dwello-Error Debug]: Error picking image:', err);
       showDebugBanner('error', 'Image Selection Error', 'Could not open image library.');
+    } finally {
+      setIsUploadingImage(false);
     }
+  };
+
+  const handleLaunchCamera = async () => {
+    const hasPermission = await ensureCameraPermission();
+    if (!hasPermission) return;
+
+    try {
+      setIsUploadingImage(true);
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newUri = result.assets[0].uri;
+        console.log('[Dwello-DB Debug]: Camera photo captured successfully:', newUri);
+        setPhotos((prev) => [...prev, newUri]);
+      }
+    } catch (err: any) {
+      console.error('[Dwello-Error Debug]: Error capturing photo:', err);
+      showDebugBanner('error', 'Camera Error', 'Could not capture photo.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const pickImage = () => {
+    if (photos.length >= 5) {
+      Alert.alert('Maximum Photos', 'You can upload up to 5 photos per listing.');
+      return;
+    }
+
+    Alert.alert('Add Listing Photo', 'Choose how you want to add photos to this listing:', [
+      { text: 'Choose from Library', onPress: handleLaunchLibrary },
+      { text: 'Take Photo', onPress: handleLaunchCamera },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const removePhoto = (index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = async () => {
-    console.log('[Dwello-DB Debug]: Validating and submitting listing creation...');
+  const handleSubmit = () => {
+    if (isSubmitting) return; // Prevent duplicate submissions
 
-    if (!title.trim()) {
-      showDebugBanner('error', 'Validation Error', 'Please enter a listing title.');
-      return;
+    console.log('[Dwello-DB Debug]: Validating listing creation fields...');
+    const errors: Record<string, string> = {};
+
+    if (!title.trim() || title.trim().length < 3) {
+      errors.title = 'Title must be at least 3 characters.';
     }
     if (!zone.trim()) {
-      showDebugBanner('error', 'Validation Error', 'Please enter a zone/area (e.g. Babesa, Rinchending).');
-      return;
+      errors.zone = 'Zone/area is required (e.g., Babesa, Rinchending).';
     }
     const numRent = parseFloat(rent);
     if (isNaN(numRent) || numRent <= 0) {
-      showDebugBanner('error', 'Validation Error', 'Please enter a valid monthly rent amount.');
-      return;
+      errors.rent = 'Please enter a valid monthly rent amount in Nu.';
     }
     if (!validateBhutanPhone(phone)) {
-      showDebugBanner(
-        'error',
-        'Invalid Phone Number',
-        'Phone number must be an 8-digit Bhutanese number starting with 17 or 77.'
-      );
+      errors.phone = 'Valid 8-digit Bhutanese number (17xxxxxx / 77xxxxxx) required.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      showDebugBanner('error', 'Form Incomplete', 'Please check highlighted fields below.');
       return;
     }
 
+    setFieldErrors({});
+
+    // Confirmation dialog before publishing
+    Alert.alert(
+      'Publish Listing?',
+      `Are you ready to publish "${title.trim()}" in ${zone.trim()}, ${region} for Nu. ${numRent.toLocaleString()}/month?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Publish',
+          onPress: () => performPublish(numRent),
+        },
+      ]
+    );
+  };
+
+  const performPublish = async (numRent: number) => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
@@ -252,12 +314,16 @@ export default function PostListingScreen() {
         {/* Listing Title */}
         <Text style={styles.fieldLabel}>Listing Title</Text>
         <TextInput
-          style={styles.textInput}
+          style={[styles.textInput, fieldErrors.title ? styles.inputErrorBorder : null]}
           placeholder="e.g., Spacious 2BHK with balcony"
           placeholderTextColor="#9CA3AF"
           value={title}
-          onChangeText={setTitle}
+          onChangeText={(txt) => {
+            setTitle(txt);
+            if (fieldErrors.title) setFieldErrors((prev) => ({ ...prev, title: '' }));
+          }}
         />
+        {fieldErrors.title ? <Text style={styles.inlineErrorText}>{fieldErrors.title}</Text> : null}
 
         {/* Location Municipal Region */}
         <Text style={styles.fieldLabel}>Location</Text>
@@ -281,12 +347,16 @@ export default function PostListingScreen() {
         {/* Zone / Area */}
         <Text style={styles.subFieldLabel}>Zone / Area</Text>
         <TextInput
-          style={styles.textInput}
+          style={[styles.textInput, fieldErrors.zone ? styles.inputErrorBorder : null]}
           placeholder="e.g., Motithang, Babesa, Rinchending"
           placeholderTextColor="#9CA3AF"
           value={zone}
-          onChangeText={setZone}
+          onChangeText={(txt) => {
+            setZone(txt);
+            if (fieldErrors.zone) setFieldErrors((prev) => ({ ...prev, zone: '' }));
+          }}
         />
+        {fieldErrors.zone ? <Text style={styles.inlineErrorText}>{fieldErrors.zone}</Text> : null}
 
         {/* Pin Exact Location on Micro-Map */}
         <Text style={styles.subFieldLabel}>Pin Exact Location (Drag pin or tap map)</Text>
@@ -326,13 +396,17 @@ export default function PostListingScreen() {
         {/* Rent Amount */}
         <Text style={styles.fieldLabel}>Rent Amount (Nu. per month)</Text>
         <TextInput
-          style={styles.textInput}
+          style={[styles.textInput, fieldErrors.rent ? styles.inputErrorBorder : null]}
           placeholder="e.g., 10000"
           placeholderTextColor="#9CA3AF"
           keyboardType="numeric"
           value={rent}
-          onChangeText={setRent}
+          onChangeText={(txt) => {
+            setRent(txt);
+            if (fieldErrors.rent) setFieldErrors((prev) => ({ ...prev, rent: '' }));
+          }}
         />
+        {fieldErrors.rent ? <Text style={styles.inlineErrorText}>{fieldErrors.rent}</Text> : null}
 
         {/* BHK Type */}
         <Text style={styles.fieldLabel}>BHK Type</Text>
@@ -449,12 +523,16 @@ export default function PostListingScreen() {
 
           <Text style={styles.subFieldLabel}>WhatsApp Phone Number</Text>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, fieldErrors.phone ? styles.inputErrorBorder : null]}
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(txt) => {
+              setPhone(txt);
+              if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: '' }));
+            }}
             keyboardType="phone-pad"
             placeholder="17xxxxxx or 77xxxxxx"
           />
+          {fieldErrors.phone ? <Text style={styles.inlineErrorText}>{fieldErrors.phone}</Text> : null}
         </View>
 
         {/* Photos (Upload up to 5 with thumbnail previews & remove overlay) */}
@@ -465,16 +543,27 @@ export default function PostListingScreen() {
               <Image source={{ uri }} style={styles.photoThumbnail} />
               <TouchableOpacity
                 onPress={() => removePhoto(index)}
-                style={styles.removePhotoBtn}>
+                style={styles.removePhotoBtn}
+                accessibilityLabel="Remove photo">
                 <Ionicons name="close" size={14} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
           ))}
 
           {photos.length < 5 && (
-            <TouchableOpacity onPress={pickImage} style={styles.addPhotoBtn}>
-              <Ionicons name="camera-outline" size={26} color={DwelloColors.primary} />
-              <Text style={styles.addPhotoText}>Add</Text>
+            <TouchableOpacity
+              onPress={pickImage}
+              disabled={isUploadingImage}
+              style={styles.addPhotoBtn}
+              accessibilityLabel="Add property photo">
+              {isUploadingImage ? (
+                <ActivityIndicator size="small" color={DwelloColors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="camera-outline" size={26} color={DwelloColors.primary} />
+                  <Text style={styles.addPhotoText}>Add</Text>
+                </>
+              )}
             </TouchableOpacity>
           )}
         </View>
@@ -788,5 +877,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#374151',
+  },
+  inputErrorBorder: {
+    borderColor: '#EF4444',
+    borderWidth: 1.5,
+  },
+  inlineErrorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 4,
+    marginBottom: 8,
+    fontWeight: '500',
   },
 });

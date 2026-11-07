@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { DatabaseService } from '@/services/database';
 import { useDebug } from '@/context/DebugContext';
+import { DebugBanner } from './DebugBanner';
 
 interface ReportModalProps {
   visible: boolean;
@@ -47,23 +48,25 @@ export function ReportModal({
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    console.log('[Dwello-DB Debug]: Submitting report for listing:', listingId, selectedReason);
+    console.log('[Dwello-Moderation Debug]: Submitting report for listing:', listingId, selectedReason);
     try {
       await DatabaseService.reportListing({
         listingId,
         listingTitle,
         reason: selectedReason,
         notes: notes.trim(),
+        status: 'pending',
+        createdAt: new Date().toISOString(),
       });
       showDebugBanner(
         'success',
-        'Report Submitted',
-        'Thank you. Our moderation team will review this listing shortly.'
+        'Report Submitted for Review',
+        'Status: Pending. Our moderation team has been notified and will action this report.'
       );
       setNotes('');
       onClose();
     } catch (error: any) {
-      console.error('[Dwello-Error Debug]: Error submitting listing report:', error);
+      console.error('[Dwello-Moderation Debug]: Error submitting listing report:', error);
       showDebugBanner('error', 'Report Failed', error.message || 'Unable to submit report.');
     } finally {
       setIsSubmitting(false);
@@ -73,6 +76,11 @@ export function ReportModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
+        {/* Toast Portal overlay inside native Modal to appear above modal dialog content */}
+        <View pointerEvents="box-none" style={styles.modalToastContainer}>
+          <DebugBanner insideModal />
+        </View>
+
         <View style={styles.modalCard}>
           <View style={styles.header}>
             <Text style={styles.title}>Report Listing</Text>
@@ -146,6 +154,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+  },
+  modalToastContainer: {
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
+    zIndex: 99999,
+    elevation: 9999,
+    pointerEvents: 'box-none',
   },
   modalCard: {
     backgroundColor: '#FFFFFF',

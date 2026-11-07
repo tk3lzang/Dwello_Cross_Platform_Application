@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { StorageService } from '@/services/storage';
+import { OfflineSyncService } from '@/services/offlineSync';
 import { PropertyListing } from '@/types/listing';
 import { useDebug } from './DebugContext';
 
@@ -67,6 +68,12 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
 
     setWishlistIds(updatedIds);
     await StorageService.saveWishlistIds(updatedIds);
+
+    // Queue mutation for Supabase background sync & cache listing offline
+    await OfflineSyncService.enqueueAction('TOGGLE_FAVORITE', {
+      listingId: listing.id,
+      isSaved: !isCurrentlySaved,
+    });
     return !isCurrentlySaved;
   };
 

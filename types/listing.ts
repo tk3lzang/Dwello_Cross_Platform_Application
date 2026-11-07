@@ -36,6 +36,11 @@ export interface PropertyListing {
   fairMarketPrice?: boolean;
   createdAt: string;
   updatedAt: string;
+  reportCount?: number;
+  isFlaggedUnderReview?: boolean;
+  appealWindowOpen?: boolean;
+  appealSubmitted?: boolean;
+  appealNotes?: string;
 }
 
 export interface ListingFilterState {
@@ -61,10 +66,16 @@ export interface ExpenseSplitState {
 }
 
 export interface ReportListingPayload {
+  id?: string;
   listingId: string;
   listingTitle: string;
   reason: 'Already Rented' | 'Misleading Information' | 'Wrong Price or Location' | 'Inappropriate Content' | 'Scam / Fraud';
   notes?: string;
   reportedByEmail?: string;
+  status: 'pending' | 'reviewed' | 'actioned';
+  createdAt?: string;
+  ownerId?: string;
+  appealNotes?: string;
+  appealStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
 }
 

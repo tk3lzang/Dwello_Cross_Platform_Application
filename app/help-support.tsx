@@ -16,18 +16,25 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
-import { openWhatsAppChat, callPhoneNumber } from '@/utils/linking';
+import {
+  openWhatsAppChat,
+  callPhoneNumber,
+  OFFICIAL_DWELLO_HELPLINE,
+} from '@/utils/linking';
 
 export default function HelpSupportScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const handleWhatsAppSupport = () => {
-    openWhatsAppChat('17123456', 'Hello Dwello Support, I need assistance regarding a property listing on the app.');
+    openWhatsAppChat(
+      OFFICIAL_DWELLO_HELPLINE,
+      'Hello Dwello Support, I need assistance regarding a property listing on the app.'
+    );
   };
 
   const handleCallSupport = () => {
-    callPhoneNumber('17123456');
+    callPhoneNumber(OFFICIAL_DWELLO_HELPLINE);
   };
 
   return (
@@ -61,7 +68,7 @@ export default function HelpSupportScreen() {
           </View>
           <View style={styles.channelTextCol}>
             <Text style={styles.channelTitle}>WhatsApp Support</Text>
-            <Text style={styles.channelDesc}>Direct messaging with customer care</Text>
+            <Text style={styles.channelDesc}>Direct messaging with customer care • +975 {OFFICIAL_DWELLO_HELPLINE}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
         </TouchableOpacity>
@@ -76,7 +83,7 @@ export default function HelpSupportScreen() {
           </View>
           <View style={styles.channelTextCol}>
             <Text style={styles.channelTitle}>Helpline Phone Call</Text>
-            <Text style={styles.channelDesc}>Available 9:00 AM - 6:00 PM (BST)</Text>
+            <Text style={styles.channelDesc}>Available 9:00 AM - 6:00 PM (BST) • {OFFICIAL_DWELLO_HELPLINE}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
         </TouchableOpacity>

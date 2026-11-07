@@ -208,10 +208,17 @@ export default function RoommatesScreen() {
           <TouchableOpacity
             activeOpacity={0.88}
             onPress={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
-            style={styles.floatingModeBtn}>
+            style={styles.floatingModeBtn}
+            accessibilityLabel={viewMode === 'list' ? 'Switch to map view' : 'Switch to list view'}>
             <Text style={styles.floatingModeText}>
-              {viewMode === 'list' ? 'Map 🗺️' : 'List 📋'}
+              {viewMode === 'list' ? 'Map' : 'List'}
             </Text>
+            <Ionicons
+              name={viewMode === 'list' ? 'map' : 'list'}
+              size={16}
+              color="#FFFFFF"
+              style={styles.floatingModeIcon}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -402,26 +409,39 @@ const styles = StyleSheet.create({
   },
   floatingModeWrapper: {
     position: 'absolute',
-    bottom: 24,
+    bottom: Platform.OS === 'ios' ? 44 : 38,
     left: 0,
     right: 0,
     alignItems: 'center',
     zIndex: 99,
   },
   floatingModeBtn: {
-    backgroundColor: '#111827',
+    backgroundColor: '#262626',
     paddingHorizontal: 20,
     paddingVertical: 11,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
+    borderRadius: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.28,
+        shadowRadius: 7,
+      },
+      android: {
+        elevation: 7,
+      },
+    }),
   },
   floatingModeText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  floatingModeIcon: {
+    marginLeft: 8,
   },
 });
