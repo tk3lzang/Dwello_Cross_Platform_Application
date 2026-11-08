@@ -17,6 +17,7 @@
     "expo-haptics": "~58.0.7",
     "expo-image-picker": "~58.0.10",
     "expo-linking": "~58.0.15",
+    "expo-notifications": "~58.1.8",
     "expo-router": "~58.0.28",
     "expo-splash-screen": "~58.0.12",
     "expo-status-bar": "~58.0.4",
@@ -25,6 +26,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
+    "react-native-gesture-handler": "~3.3.0",
     "react-native-maps": "1.29.11",
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",
@@ -49,7 +51,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "jest"
+    "test": "jest",
+    "postinstall": "node -e \"const fs=require('fs'); const p1='./node_modules/react-native-gesture-handler/package.json'; if(fs.existsSync(p1)){let c=fs.readFileSync(p1,'utf8').replace('src/index.ts','lib/module/index.js');fs.writeFileSync(p1,c);}; const p2='./node_modules/react-native-gesture-handler/ReanimatedSwipeable/package.json'; if(fs.existsSync(p2)){let c=fs.readFileSync(p2,'utf8').replace('../src/','../lib/module/');fs.writeFileSync(p2,c);}\""
   },
   "private": true
 }

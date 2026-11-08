@@ -99,8 +99,8 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
         result = result.filter((item) => item.category === filters.category);
       }
 
-      // Status
-      result = result.filter((item) => item.status === 'active');
+      // Status & Hidden Check (Admin Moderation)
+      result = result.filter((item) => item.status === 'active' && !item.is_hidden);
 
       // Search Query
       if (filters.searchQuery && filters.searchQuery.trim().length > 0) {

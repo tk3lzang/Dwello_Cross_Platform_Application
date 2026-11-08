@@ -34,6 +34,7 @@ export interface PropertyListing {
   ownerAvatar?: string;
   status: ListingStatus;
   fairMarketPrice?: boolean;
+  is_hidden?: boolean;
   createdAt: string;
   updatedAt: string;
   reportCount?: number;

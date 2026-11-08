@@ -511,6 +511,25 @@ export const DatabaseService = {
   },
 
   /**
+   * Sets whether a listing is hidden by admin moderation
+   */
+  async setListingHiddenStatus(listingId: string, isHidden: boolean): Promise<boolean> {
+    console.log(`[Dwello-DB Debug]: Setting listing ${listingId} is_hidden = ${isHidden}`);
+    try {
+      const target = memoryListings.find((item) => item.id === listingId);
+      if (target) {
+        target.is_hidden = isHidden;
+        await StorageService.setCachedListings(memoryListings);
+        notifyListeners();
+      }
+      return true;
+    } catch (e) {
+      console.error('[Dwello-Error Debug]: setListingHiddenStatus failed:', e);
+      return false;
+    }
+  },
+
+  /**
    * Retrieves reports for a listing
    */
   getListingReports(listingId: string): ReportListingPayload[] {

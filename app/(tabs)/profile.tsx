@@ -4,7 +4,7 @@
  * Manages user profile information, photo avatar updates, Bhutanese localization, and settings.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,6 +15,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,6 +26,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useDebug } from '@/context/DebugContext';
 import { StorageService } from '@/services/storage';
 import { ensureMediaLibraryPermission, ensureCameraPermission } from '@/utils/permissions';
+import { NotificationBell } from '@/components/NotificationCenter';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -36,6 +38,24 @@ export default function ProfileScreen() {
     user?.notificationsEnabled ?? true
   );
   const [language, setLanguage] = useState<'English' | 'Dzongkha'>('English');
+  const [demoAdminEnabled, setDemoAdminEnabled] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@dwello_demo_admin')
+      .then((val) => {
+        if (val === 'true') setDemoAdminEnabled(true);
+      })
+      .catch((e) => console.warn('[Dwello-Moderation Error]: Failed to read demo admin setting:', e));
+  }, []);
+
+  const handleToggleDemoAdmin = async (val: boolean) => {
+    setDemoAdminEnabled(val);
+    try {
+      await AsyncStorage.setItem('@dwello_demo_admin', val ? 'true' : 'false');
+    } catch (e) {
+      console.warn('[Dwello-Moderation Error]: Failed to save demo admin setting:', e);
+    }
+  };
 
   const handleAvatarPicker = () => {
     console.log('[Dwello-Auth Debug]: Initiating profile avatar picker...');
@@ -135,6 +155,7 @@ export default function ProfileScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Profile</Text>
+        <NotificationBell />
       </View>
 
       <ScrollView
@@ -284,6 +305,44 @@ export default function ProfileScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
+
+          {/* Demo Admin Mode Toggle (Directive Module 3) */}
+          <View style={styles.menuItem}>
+            <View style={styles.menuLeft}>
+              <View style={[styles.iconCircle, demoAdminEnabled && { backgroundColor: '#FEF3C7' }]}>
+                <Ionicons
+                  name="shield-half-outline"
+                  size={18}
+                  color={demoAdminEnabled ? '#D97706' : '#111827'}
+                />
+              </View>
+              <Text style={styles.menuLabel}>Demo Admin Mode</Text>
+            </View>
+            <Switch
+              value={demoAdminEnabled}
+              onValueChange={handleToggleDemoAdmin}
+              trackColor={{ false: '#D1D5DB', true: '#D97706' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {/* Conditional Admin Moderation Link */}
+          {demoAdminEnabled && (
+            <TouchableOpacity
+              style={[styles.menuItem, { backgroundColor: '#FFFBEB' }]}
+              activeOpacity={0.7}
+              onPress={() => router.push('/admin-moderation')}>
+              <View style={styles.menuLeft}>
+                <View style={[styles.iconCircle, { backgroundColor: '#FDE68A' }]}>
+                  <Ionicons name="shield-checkmark" size={18} color="#B45309" />
+                </View>
+                <Text style={[styles.menuLabel, { color: '#B45309', fontWeight: '700' }]}>
+                  Admin Moderation Panel
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#B45309" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Sign Out Button */}
@@ -305,6 +364,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,

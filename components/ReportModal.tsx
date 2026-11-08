@@ -17,6 +17,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { DatabaseService } from '@/services/database';
+import { ModerationService } from '@/services/moderationService';
+import { useAuth } from '@/context/AuthContext';
 import { useDebug } from '@/context/DebugContext';
 import { DebugBanner } from './DebugBanner';
 
@@ -41,15 +43,38 @@ export function ReportModal({
   listingId,
   listingTitle,
 }: ReportModalProps) {
+  const { user } = useAuth();
   const [selectedReason, setSelectedReason] = useState<typeof REASONS[number]>('Already Rented');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedReportId, setSubmittedReportId] = useState<string | null>(null);
+  const [isListingHiddenLocally, setIsListingHiddenLocally] = useState<boolean>(false);
   const { showDebugBanner } = useDebug();
+
+  const handleClose = () => {
+    setSubmittedReportId(null);
+    setNotes('');
+    setIsListingHiddenLocally(false);
+    onClose();
+  };
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
     console.log('[Dwello-Moderation Debug]: Submitting report for listing:', listingId, selectedReason);
     try {
+      // 1. Submit through isolated moderation service
+      const reporterId = user?.id || 'guest-reporter';
+      const reporterEmail = user?.email || undefined;
+      const report = await ModerationService.submitReport({
+        listingId,
+        listingTitle,
+        reporterId,
+        reporterEmail,
+        reason: selectedReason,
+        details: notes.trim(),
+      });
+
+      // Also update legacy database payload for backward compatibility
       await DatabaseService.reportListing({
         listingId,
         listingTitle,
@@ -58,18 +83,30 @@ export function ReportModal({
         status: 'pending',
         createdAt: new Date().toISOString(),
       });
+
+      const repCode = report.id.slice(-6).toUpperCase();
       showDebugBanner(
         'success',
-        'Report Submitted for Review',
-        'Status: Pending. Our moderation team has been notified and will action this report.'
+        'Report Received',
+        `Thank you for helping keep Dwello safe. Report #REP-${repCode} is under review.`
       );
-      setNotes('');
-      onClose();
+
+      // Transition modal UI to clean success state
+      setSubmittedReportId(report.id);
     } catch (error: any) {
-      console.error('[Dwello-Moderation Debug]: Error submitting listing report:', error);
+      console.error('[Dwello-Moderation Error]: Error submitting listing report:', error);
       showDebugBanner('error', 'Report Failed', error.message || 'Unable to submit report.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const toggleHideFromFeed = async () => {
+    const next = !isListingHiddenLocally;
+    setIsListingHiddenLocally(next);
+    if (next) {
+      await ModerationService.hideListingForUser(listingId);
+      showDebugBanner('info', 'Feed Updated', 'Listing will be hidden from your feed.');
     }
   };
 
@@ -82,65 +119,108 @@ export function ReportModal({
         </View>
 
         <View style={styles.modalCard}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Report Listing</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color="#4B5563" />
-            </TouchableOpacity>
-          </View>
+          {submittedReportId ? (
+            /* Clean Success State (Module 2) */
+            <View style={styles.successContainer}>
+              <View style={styles.successIconCircle}>
+                <Ionicons name="checkmark-circle" size={54} color={DwelloColors.success} />
+              </View>
 
-          <Text style={styles.subtitle}>
-            Help maintain reliable rentals in Bhutan by reporting inaccurate or problematic listings.
-          </Text>
+              <Text style={styles.successTitle}>Report Received</Text>
+              <Text style={styles.successSubtitle}>
+                Thank you for helping keep Dwello safe. Report{' '}
+                <Text style={{ fontWeight: '700', color: '#111827' }}>
+                  #REP-{submittedReportId.slice(-6).toUpperCase()}
+                </Text>{' '}
+                is under review by our moderation team.
+              </Text>
 
-          <Text style={styles.sectionLabel}>Select Reason</Text>
-          <View style={styles.reasonsList}>
-            {REASONS.map((reason) => {
-              const active = selectedReason === reason;
-              return (
-                <TouchableOpacity
-                  key={reason}
-                  onPress={() => setSelectedReason(reason)}
-                  style={[styles.reasonRow, active && styles.activeReasonRow]}>
-                  <Ionicons
-                    name={active ? 'radio-button-on' : 'radio-button-off'}
-                    size={18}
-                    color={active ? DwelloColors.primary : '#9CA3AF'}
-                  />
-                  <Text style={[styles.reasonText, active && styles.activeReasonText]}>
-                    {reason}
-                  </Text>
+              {/* Non-intrusive option: Hide listing from my feed */}
+              <TouchableOpacity
+                onPress={toggleHideFromFeed}
+                activeOpacity={0.75}
+                style={styles.hideFeedOption}>
+                <Ionicons
+                  name={isListingHiddenLocally ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={isListingHiddenLocally ? DwelloColors.primary : '#6B7280'}
+                />
+                <Text style={styles.hideFeedOptionText}>
+                  Hide this listing from my feed
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleClose}
+                activeOpacity={0.85}
+                style={styles.doneBtn}>
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Report Form */
+            <>
+              <View style={styles.header}>
+                <Text style={styles.title}>Report Listing</Text>
+                <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+                  <Ionicons name="close" size={22} color="#4B5563" />
                 </TouchableOpacity>
-              );
-            })}
-          </View>
+              </View>
 
-          <Text style={styles.sectionLabel}>Additional Notes (Optional)</Text>
-          <TextInput
-            style={styles.notesInput}
-            placeholder="Provide any additional context for the review team..."
-            placeholderTextColor="#9CA3AF"
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={3}
-          />
+              <Text style={styles.subtitle}>
+                Help maintain reliable rentals in Bhutan by reporting inaccurate or problematic listings.
+              </Text>
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={isSubmitting}
-              style={styles.submitBtn}>
-              {isSubmitting ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.submitBtnText}>Submit Report</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.sectionLabel}>Select Reason</Text>
+              <View style={styles.reasonsList}>
+                {REASONS.map((reason) => {
+                  const active = selectedReason === reason;
+                  return (
+                    <TouchableOpacity
+                      key={reason}
+                      onPress={() => setSelectedReason(reason)}
+                      style={[styles.reasonRow, active && styles.activeReasonRow]}>
+                      <Ionicons
+                        name={active ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={active ? DwelloColors.primary : '#9CA3AF'}
+                      />
+                      <Text style={[styles.reasonText, active && styles.activeReasonText]}>
+                        {reason}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.sectionLabel}>Additional Notes (Optional)</Text>
+              <TextInput
+                style={styles.notesInput}
+                placeholder="Provide any additional context for the review team..."
+                placeholderTextColor="#9CA3AF"
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                numberOfLines={3}
+              />
+
+              <View style={styles.buttonRow}>
+                <TouchableOpacity onPress={handleClose} style={styles.cancelBtn}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSubmit}
+                  disabled={isSubmitting}
+                  style={styles.submitBtn}>
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.submitBtnText}>Submit Report</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -270,6 +350,57 @@ const styles = StyleSheet.create({
   submitBtnText: {
     color: '#FFFFFF',
     fontSize: 14,
+    fontWeight: '700',
+  },
+  successContainer: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  successIconCircle: {
+    marginBottom: 12,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  successSubtitle: {
+    fontSize: 14,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+    paddingHorizontal: 8,
+  },
+  hideFeedOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    width: '100%',
+    marginBottom: 20,
+  },
+  hideFeedOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginLeft: 10,
+  },
+  doneBtn: {
+    backgroundColor: DwelloColors.primary,
+    paddingVertical: 13,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  doneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '700',
   },
 });

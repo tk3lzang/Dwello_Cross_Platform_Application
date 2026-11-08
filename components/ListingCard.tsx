@@ -81,14 +81,18 @@ export function ListingCard({
         <View
           style={[
             styles.badge,
-            isRented
+            listing.is_hidden
+              ? styles.hiddenBadge
+              : isRented
               ? styles.rentedBadge
               : listing.category === 'Full Flat'
               ? styles.fullFlatBadge
               : styles.sharedRoomBadge,
           ]}>
           <Text style={styles.badgeText}>
-            {isRented
+            {listing.is_hidden
+              ? 'LISTING HIDDEN'
+              : isRented
               ? 'RENTED'
               : listing.category === 'Full Flat'
               ? 'FULL FLAT'
@@ -258,6 +262,9 @@ const styles = StyleSheet.create({
   },
   sharedRoomBadge: {
     backgroundColor: '#FF5A5F',
+  },
+  hiddenBadge: {
+    backgroundColor: '#DC2626',
   },
   rentedBadge: {
     backgroundColor: DwelloColors.rented,

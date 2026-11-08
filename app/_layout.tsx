@@ -6,12 +6,15 @@
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, Animated, Easing } from 'react-native';
+import { StyleSheet, View, Animated, Easing, Platform } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
+import { AndroidImportance } from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { DebugProvider, useDebug } from '@/context/DebugContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { WishlistProvider } from '@/context/WishlistContext';
@@ -23,6 +26,101 @@ import { OfflineSyncService } from '@/services/offlineSync';
 import { DwelloLogo } from '@/components/DwelloLogo';
 
 SplashScreen.preventAutoHideAsync();
+
+// Module 3: True Background Push Notification Configuration
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+/**
+ * PushNotificationWatcher
+ * Listens for background/local notifications, handles permissions & channels,
+ * and deep-links directly to Appeal Form Modal or Notification Center when tapped.
+ */
+function PushNotificationWatcher() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // 1. Configure system notification channels and permissions
+    async function configureNotifications() {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        if (existingStatus !== 'granted') {
+          await Notifications.requestPermissionsAsync();
+        }
+
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Dwello Notifications',
+            importance: AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF3158',
+          });
+        }
+      } catch (err) {
+        console.warn('[Dwello-Notifications]: Setup error:', err);
+      }
+    }
+
+    configureNotifications();
+
+    const handleNotificationAction = (data: any) => {
+      try {
+        const listingId = data?.listingId || data?.targetId;
+        const actionType = data?.type;
+        const isRemoval =
+          actionType === 'listing_flagged' ||
+          data?.isRemovalAlert ||
+          data?.openAppeal;
+
+        if (isRemoval && listingId) {
+          console.log('[Dwello-Notifications]: Deep-linking to Appeal Form for listing:', listingId);
+          router.push({
+            pathname: '/my-listings',
+            params: { appealListingId: String(listingId) },
+          });
+        } else {
+          console.log('[Dwello-Notifications]: Deep-linking to Profile / Notifications');
+          router.push('/(tabs)/profile');
+        }
+      } catch (e) {
+        console.error('[Dwello-Notifications Error]: Navigation error:', e);
+      }
+    };
+
+    // 2. Check if app was cold-launched from a background notification tap
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) {
+          console.log('[Dwello-Notifications]: Cold launch response received');
+          const data = response.notification.request.content.data;
+          handleNotificationAction(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('[Dwello-Notifications]: Cold launch check error:', err);
+      });
+
+    // 3. Listen for notification response tap when backgrounded or running
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      console.log('[Dwello-Notifications]: User tapped notification response:', response);
+      const data = response.notification.request.content.data;
+      handleNotificationAction(data);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [router]);
+
+  return null;
+}
 
 /**
  * Controller to guard routes based on authentication status and handle incoming deep links.
@@ -248,14 +346,16 @@ export default function RootLayout() {
   }, [attemptSplashDismissal]);
 
   return (
-    <SafeAreaProvider>
-      <DebugProvider>
-        <AuthProvider>
-          <WishlistProvider>
-            <ListingsProvider>
-              <StatusBar style="dark" />
-              <AuthNavigationWatcher onReady={handleAuthReady} />
-              <Stack
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <DebugProvider>
+          <AuthProvider>
+            <WishlistProvider>
+              <ListingsProvider>
+                <StatusBar style="dark" />
+                <AuthNavigationWatcher onReady={handleAuthReady} />
+                <PushNotificationWatcher />
+                <Stack
                 screenOptions={{
                   headerShown: false,
                   contentStyle: { backgroundColor: '#FFFFFF' },
@@ -332,6 +432,14 @@ export default function RootLayout() {
                     animation: 'slide_from_right',
                   }}
                 />
+                <Stack.Screen
+                  name="admin-moderation"
+                  options={{
+                    headerShown: false,
+                    presentation: 'card',
+                    animation: 'slide_from_right',
+                  }}
+                />
               </Stack>
 
               {/* Global Toast Portal — rendered above React Navigation stack and active UI */}
@@ -382,7 +490,8 @@ export default function RootLayout() {
         </AuthProvider>
       </DebugProvider>
     </SafeAreaProvider>
-  );
+  </GestureHandlerRootView>
+);
 }
 
 const styles = StyleSheet.create({

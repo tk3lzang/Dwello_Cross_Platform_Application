@@ -29,6 +29,9 @@ import { supabase, isSupabaseConfigured } from '@/services/supabase';
 import { StorageService } from '@/services/storage';
 import { openWhatsAppChat } from '@/utils/linking';
 import { useDebug } from '@/context/DebugContext';
+import { NotificationBell } from '@/components/NotificationCenter';
+import { AppealFormModal } from '@/components/AppealFormModal';
+import { PropertyListing } from '@/types/listing';
 
 // Lifestyle preference icons mapping
 const PREF_ICONS: Record<string, string> = {
@@ -58,6 +61,7 @@ export default function PublicProfileScreen() {
   const { user } = useAuth();
   const { showDebugBanner } = useDebug();
   const [isContactLoading, setIsContactLoading] = useState(false);
+  const [selectedAppealListing, setSelectedAppealListing] = useState<PropertyListing | null>(null);
 
   // Live synchronized profile state hooks (Module 1B)
   const [liveAvatar, setLiveAvatar] = useState<string | undefined>(ownerAvatar);
@@ -178,7 +182,11 @@ export default function PublicProfileScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>User Profile</Text>
-        <View style={{ width: 36 }} />
+        <NotificationBell
+          onOpenAppeal={(listingId, listingTitle) => {
+            setSelectedAppealListing({ id: listingId, title: listingTitle || 'Property Listing' } as any);
+          }}
+        />
       </View>
 
       <ScrollView
@@ -285,7 +293,22 @@ export default function PublicProfileScreen() {
             </View>
           ) : (
             ownerListings.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
+              <View key={listing.id} style={{ marginBottom: 12 }}>
+                <ListingCard listing={listing} />
+                {listing.is_hidden && (
+                  <TouchableOpacity
+                    style={styles.appealListingBanner}
+                    activeOpacity={0.85}
+                    onPress={() => setSelectedAppealListing(listing)}>
+                    <View style={styles.appealListingBadge}>
+                      <Ionicons name="eye-off" size={13} color="#DC2626" style={{ marginRight: 4 }} />
+                      <Text style={styles.appealListingBadgeText}>Listing Hidden</Text>
+                    </View>
+                    <Text style={styles.appealListingActionText}>Tap to Appeal</Text>
+                    <Ionicons name="chevron-forward" size={14} color="#B91C1C" />
+                  </TouchableOpacity>
+                )}
+              </View>
             ))
           )}
         </View>
@@ -298,6 +321,17 @@ export default function PublicProfileScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Appeal Request Form Modal */}
+      {selectedAppealListing && (
+        <AppealFormModal
+          visible={!!selectedAppealListing}
+          listingId={selectedAppealListing.id}
+          listingTitle={selectedAppealListing.title}
+          onClose={() => setSelectedAppealListing(null)}
+          onAppealSubmitted={() => setSelectedAppealListing(null)}
+        />
+      )}
     </View>
   );
 }
@@ -511,5 +545,37 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     flex: 1,
     lineHeight: 17,
+  },
+  appealListingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: -8,
+  },
+  appealListingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  appealListingBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  appealListingActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+    flex: 1,
+    marginLeft: 8,
   },
 });

@@ -5,7 +5,7 @@
  * Real-time reactive updates without requiring manual pull-to-refresh.
  */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -18,7 +18,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { ListingCard } from '@/components/ListingCard';
@@ -28,6 +28,7 @@ import { useListings } from '@/context/ListingsContext';
 import { useDebug } from '@/context/DebugContext';
 import { DatabaseService } from '@/services/database';
 import { DebugBanner } from '@/components/DebugBanner';
+import { AppealFormModal } from '@/components/AppealFormModal';
 
 export default function MyListingsScreen() {
   const insets = useSafeAreaInsets();
@@ -35,6 +36,7 @@ export default function MyListingsScreen() {
   const { user } = useAuth();
   const { allListings, markAsRented, repostListing, deleteListing } = useListings();
   const { showDebugBanner } = useDebug();
+  const params = useLocalSearchParams<{ appealListingId?: string }>();
 
   const [currentTab, setCurrentTab] = useState<'active' | 'archived'>('active');
 
@@ -46,6 +48,42 @@ export default function MyListingsScreen() {
   const [isAppealModalOpen, setIsAppealModalOpen] = useState(false);
   const [appealNotes, setAppealNotes] = useState('');
   const [appealListingTarget, setAppealListingTarget] = useState<PropertyListing | null>(null);
+  const [selectedAppealListing, setSelectedAppealListing] = useState<PropertyListing | null>(null);
+
+  // Deep-link direct launch of Appeal Form Modal from background push notifications
+  useEffect(() => {
+    if (params.appealListingId && allListings.length > 0) {
+      const match = allListings.find((item) => item.id === params.appealListingId);
+      if (match) {
+        setSelectedAppealListing(match);
+      } else {
+        // Fallback target with matching listing ID
+        setSelectedAppealListing({
+          id: params.appealListingId,
+          title: 'Reported Property Listing',
+          category: 'Full Flat',
+          price: 13500,
+          bhkType: '2BHK',
+          municipalRegion: 'Thimphu',
+          zoneArea: 'Norzin Lam',
+          fullAddress: 'Norzin Lam, Thimphu',
+          latitude: 27.4712,
+          longitude: 89.6339,
+          images: [],
+          amenities: [],
+          description: 'Dwello rental property',
+          status: 'active',
+          ownerId: user?.id || 'owner-tandin',
+          ownerName: 'Tandin Kelzang',
+          ownerPhone: '17123456',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          is_hidden: true,
+          appealWindowOpen: true,
+        });
+      }
+    }
+  }, [params.appealListingId, allListings, user?.id]);
 
   // Animated translateY for the bottom sheet card to slide up independently of the static backdrop
   const sheetTranslateY = useRef(new Animated.Value(320)).current;
@@ -60,11 +98,6 @@ export default function MyListingsScreen() {
     const archived = userItems.filter((item) => item.status === 'rented' || item.status === 'archived');
     return { activeListings: active, archivedListings: archived };
   }, [allListings, user?.id]);
-
-  // Check if any owner listings have an active appeal window open
-  const flaggedListings = useMemo(() => {
-    return activeListings.filter((item) => item.appealWindowOpen && !item.appealSubmitted);
-  }, [activeListings]);
 
   const handleCardPress = (listing: PropertyListing) => {
     setSelectedListing(listing);
@@ -186,24 +219,6 @@ export default function MyListingsScreen() {
         <Text style={styles.headerTitle}>My Listings</Text>
       </View>
 
-      {/* Moderation Alert & Appeal Window Notification */}
-      {flaggedListings.length > 0 && (
-        <View style={styles.moderationBanner}>
-          <Ionicons name="shield-outline" size={20} color="#DC2626" style={{ marginRight: 8 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.moderationBannerTitle}>Listing Flagged for Review</Text>
-            <Text style={styles.moderationBannerSubtitle}>
-              {flaggedListings.length} listing received reports. Appeal window is open.
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => handleOpenAppeal(flaggedListings[0])}
-            style={styles.appealBtn}>
-            <Text style={styles.appealBtnText}>Appeal</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       {/* Tabs Switcher: Active (N) and Archived (M) */}
       <View style={styles.tabsRow}>
         <TouchableOpacity
@@ -229,17 +244,39 @@ export default function MyListingsScreen() {
           data={currentList}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <ListingCard
-              listing={item}
-              onPress={handleCardPress}
-              showCalculator={currentTab === 'archived'}
-              onCalculatorPress={(l) => {
-                router.push({
-                  pathname: '/splitter',
-                  params: { baseRent: l.price.toString() },
-                });
-              }}
-            />
+            <View style={styles.cardItemWrapper}>
+              <ListingCard
+                listing={item}
+                onPress={handleCardPress}
+                showCalculator={currentTab === 'archived'}
+                onCalculatorPress={(l) => {
+                  router.push({
+                    pathname: '/splitter',
+                    params: { baseRent: l.price.toString() },
+                  });
+                }}
+              />
+              {item.is_hidden && (
+                <View style={styles.hiddenModerationCard}>
+                  <View style={styles.hiddenModerationRow}>
+                    <View style={styles.hiddenModerationBadge}>
+                      <Ionicons name="eye-off" size={12} color="#DC2626" style={{ marginRight: 4 }} />
+                      <Text style={styles.hiddenModerationBadgeText}>Listing Hidden</Text>
+                    </View>
+                    <Text style={styles.hiddenModerationText} numberOfLines={1}>
+                      Hidden from marketplace due to reports
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.appealActionBtn}
+                    activeOpacity={0.85}
+                    onPress={() => setSelectedAppealListing(item)}>
+                    <Ionicons name="shield-half" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                    <Text style={styles.appealActionBtnText}>Apply for Appeal</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           )}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -291,7 +328,23 @@ export default function MyListingsScreen() {
             {selectedListing?.status === 'active' ? (
               // Active Sheet Options
               <View style={styles.sheetActions}>
-                {selectedListing?.appealWindowOpen && (
+                {selectedListing?.is_hidden && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const target = selectedListing;
+                      closeManageModal(() => {
+                        if (target) setSelectedAppealListing(target);
+                      });
+                    }}
+                    style={[styles.actionRow, { backgroundColor: '#FEF2F2' }]}>
+                    <Ionicons name="shield-half" size={20} color="#DC2626" style={styles.actionIcon} />
+                    <Text style={[styles.actionRowText, { color: '#DC2626', fontWeight: '700' }]}>
+                      Apply for Appeal (Listing Hidden)
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {selectedListing?.appealWindowOpen && !selectedListing?.is_hidden && (
                   <TouchableOpacity
                     onPress={() => {
                       closeManageModal(() => {
@@ -483,6 +536,17 @@ export default function MyListingsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Host Appeal Modal (Directive Module 3 & 4) */}
+      {selectedAppealListing && (
+        <AppealFormModal
+          visible={!!selectedAppealListing}
+          listingId={selectedAppealListing.id}
+          listingTitle={selectedAppealListing.title}
+          onClose={() => setSelectedAppealListing(null)}
+          onAppealSubmitted={() => setSelectedAppealListing(null)}
+        />
+      )}
     </View>
   );
 }
@@ -804,5 +868,58 @@ const styles = StyleSheet.create({
     zIndex: 99999,
     elevation: 9999,
     pointerEvents: 'box-none',
+  },
+  cardItemWrapper: {
+    marginBottom: 8,
+  },
+  hiddenModerationCard: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginTop: -8,
+    marginBottom: 8,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  hiddenModerationRow: {
+    flex: 1,
+  },
+  hiddenModerationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  hiddenModerationBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.3,
+  },
+  hiddenModerationText: {
+    fontSize: 11,
+    color: '#7F1D1D',
+  },
+  appealActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  appealActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
