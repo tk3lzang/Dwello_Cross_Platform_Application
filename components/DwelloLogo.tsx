@@ -1,7 +1,5 @@
 /**
- * Dwello Brand Logo Component
- * Section 1 & UI Snapshot Fidelity
- * Accurately reproduces the Dwello house + pin negative-space mark.
+ * Vector logo combining a house silhouette and location pin.
  */
 
 import React from 'react';

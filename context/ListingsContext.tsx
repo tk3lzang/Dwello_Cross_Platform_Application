@@ -7,13 +7,15 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { DatabaseService } from '@/services/database';
-import { PropertyListing, ListingFilterState } from '@/types/listing';
+import { ModerationService } from '@/services/moderationService';
+import { NewPropertyListing, PropertyListing, ListingFilterState } from '@/types/listing';
+import { useAuth } from './AuthContext';
 
 interface ListingsContextType {
   allListings: PropertyListing[];
   isLoading: boolean;
   refreshListings: () => Promise<void>;
-  createListing: (data: Omit<PropertyListing, 'id' | 'createdAt' | 'updatedAt' | 'status'>) => Promise<PropertyListing>;
+  createListing: (data: NewPropertyListing) => Promise<PropertyListing>;
   markAsRented: (id: string) => Promise<boolean>;
   repostListing: (id: string) => Promise<boolean>;
   deleteListing: (id: string) => Promise<boolean>;
@@ -23,7 +25,9 @@ interface ListingsContextType {
 const ListingsContext = createContext<ListingsContextType | undefined>(undefined);
 
 export function ListingsProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [allListings, setAllListings] = useState<PropertyListing[]>(() => DatabaseService.getAllListingsSync());
+  const [userHiddenListingIds, setUserHiddenListingIds] = useState<Set<string>>(() => new Set());
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   useEffect(() => {
@@ -33,6 +37,16 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
       setAllListings(updated);
     });
 
+    const syncUserHiddenListings = () => {
+      ModerationService.getUserHiddenListings()
+        .then((listingIds) => setUserHiddenListingIds(new Set(listingIds)))
+        .catch((error) => {
+          console.error('[Dwello-Moderation Error]: Could not load hidden listings:', error);
+        });
+    };
+    const unsubscribeModeration = ModerationService.subscribe(syncUserHiddenListings);
+    syncUserHiddenListings();
+
     // 2. Initial load from database/storage
     DatabaseService.initialize().then(() => {
       setAllListings(DatabaseService.getAllListingsSync());
@@ -40,6 +54,7 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
 
     return () => {
       unsubscribe();
+      unsubscribeModeration();
     };
   }, []);
 
@@ -54,13 +69,17 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createListing = useCallback(
-    async (data: Omit<PropertyListing, 'id' | 'createdAt' | 'updatedAt' | 'status'>) => {
-      const created = await DatabaseService.createListing(data);
+    async (data: NewPropertyListing) => {
+      if (!user?.id) {
+        throw new Error('You must be signed in to publish a listing.');
+      }
+
+      const created = await DatabaseService.createListing(data, user);
       // Immediately update local state
       setAllListings(DatabaseService.getAllListingsSync());
       return created;
     },
-    []
+    [user]
   );
 
   const markAsRented = useCallback(async (id: string) => {
@@ -99,8 +118,14 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
         result = result.filter((item) => item.category === filters.category);
       }
 
-      // Status & Hidden Check (Admin Moderation)
-      result = result.filter((item) => item.status === 'active' && !item.is_hidden);
+      // Status & Hidden Check (Admin Moderation) & Archived Check
+      result = result.filter(
+        (item) =>
+          item.status === 'active' &&
+          !item.is_hidden &&
+          !item.is_archived &&
+          !userHiddenListingIds.has(item.id)
+      );
 
       // Search Query
       if (filters.searchQuery && filters.searchQuery.trim().length > 0) {
@@ -164,7 +189,7 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
 
       return result;
     },
-    [allListings]
+    [allListings, userHiddenListingIds]
   );
 
   return (
@@ -191,4 +216,3 @@ export function useListings() {
   }
   return context;
 }
-

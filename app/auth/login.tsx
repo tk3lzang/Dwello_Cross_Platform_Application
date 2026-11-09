@@ -1,8 +1,5 @@
 /**
- * Secure Login & Password Recovery Screen
- * Section 1 & 1.1 of Dwello App Manual & UI Snapshot Fidelity.
- * Clean input fields, eye password toggle, modal password reset,
- * and seamless navigation to Create Account or Explore.
+ * Login and password-recovery screen.
  */
 
 import React, { useState } from 'react';
@@ -24,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { useDebug } from '@/context/DebugContext';
+import { normalizeBackendError } from '@/utils/backendError';
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -32,9 +30,10 @@ export default function LoginScreen() {
   const { showDebugBanner } = useDebug();
 
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('dwello123');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Forgot Password Dialog Modal
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
@@ -42,31 +41,45 @@ export default function LoginScreen() {
   const [isSendingReset, setIsSendingReset] = useState(false);
 
   const handleLogin = async () => {
-    console.log('[Dwello-Auth Debug]: Form submit: Logging in with:', email);
+    console.log('[Dwello-Auth Debug]: Form submit: Log In.');
     setIsLoading(true);
+    setAuthError(null);
     try {
       await login(email, password);
       router.replace('/(tabs)');
-    } catch (err: any) {
-      console.error('[Dwello-Error Catch]: Login form error:', err);
+    } catch (err) {
+      setAuthError(normalizeBackendError(err).userFacingMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSendResetLink = async () => {
-    console.log('[Dwello-Auth Debug]: Triggering password reset email for:', resetEmail);
+    const targetEmail = (resetEmail || email).trim();
+    console.log('[Dwello-Auth Debug]: Triggering password reset email.');
+
+    if (!targetEmail) {
+      showDebugBanner('error', 'Email Required', 'Please enter your registered email address.');
+      return;
+    }
+
     setIsSendingReset(true);
     try {
-      const ok = await requestPasswordReset(resetEmail || email);
+      const ok = await requestPasswordReset(targetEmail);
       if (ok) {
         setIsForgotModalOpen(false);
         showDebugBanner(
           'success',
-          'Reset Link Sent',
-          'Password reset link dispatched instantly. Please check your inbox.'
+          'Password Reset',
+          'Password reset instructions sent to your email.'
         );
       }
+    } catch (err: any) {
+      showDebugBanner(
+        'error',
+        'Reset Failed',
+        normalizeBackendError(err).userFacingMessage
+      );
     } finally {
       setIsSendingReset(false);
     }
@@ -86,6 +99,12 @@ export default function LoginScreen() {
         <Text style={styles.title}>Log In</Text>
         <Text style={styles.subtitle}>Welcome back to Dwello.</Text>
 
+        {authError && (
+          <View style={styles.authErrorBox} accessibilityRole="alert">
+            <Text style={styles.authErrorText}>{authError}</Text>
+          </View>
+        )}
+
         {/* Email Field */}
         <View style={styles.inputWrapper}>
           <TextInput
@@ -95,7 +114,10 @@ export default function LoginScreen() {
             autoCapitalize="none"
             keyboardType="email-address"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(value) => {
+              setEmail(value);
+              setAuthError(null);
+            }}
           />
         </View>
 
@@ -106,8 +128,12 @@ export default function LoginScreen() {
             placeholder="Password"
             placeholderTextColor="#9CA3AF"
             secureTextEntry={!showPassword}
+            autoCapitalize="none"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(value) => {
+              setPassword(value);
+              setAuthError(null);
+            }}
           />
           <TouchableOpacity
             onPress={() => setShowPassword(!showPassword)}
@@ -153,7 +179,7 @@ export default function LoginScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Forgot Password Quick Dialog (Manual Section 1.1) */}
+      {/* Password recovery dialog. */}
       <Modal
         visible={isForgotModalOpen}
         transparent
@@ -303,6 +329,19 @@ const styles = StyleSheet.create({
   signupBold: {
     color: DwelloColors.primary,
     fontWeight: '700',
+  },
+  authErrorBox: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  authErrorText: {
+    color: '#B91C1C',
+    fontSize: 13,
+    lineHeight: 18,
   },
   modalOverlay: {
     flex: 1,

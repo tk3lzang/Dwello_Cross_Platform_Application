@@ -12,13 +12,11 @@
  * @returns boolean indicating validity
  */
 export function validateBhutanPhone(phone: string): boolean {
-  console.log('[Dwello-Auth Debug]: Validating Bhutan phone number:', phone);
   // Clean whitespace and dashes
   const cleaned = phone.replace(/[\s\-()]/g, '');
   // Matches exactly 8 digits starting with 17 or 77
   const bhutanRegex = /^(17|77)\d{6}$/;
   const isValid = bhutanRegex.test(cleaned);
-  console.log(`[Dwello-Auth Debug]: Phone "${phone}" validation result:`, isValid);
   return isValid;
 }
 
@@ -29,7 +27,6 @@ export function validateBhutanPhone(phone: string): boolean {
  * @returns boolean
  */
 export function validateEmail(email: string): boolean {
-  console.log('[Dwello-Auth Debug]: Validating email address:', email);
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const isValid = emailRegex.test(email.trim());
   return isValid;
@@ -44,4 +41,3 @@ export function validateEmail(email: string): boolean {
 export function validatePassword(password: string): boolean {
   return typeof password === 'string' && password.length >= 6;
 }
-

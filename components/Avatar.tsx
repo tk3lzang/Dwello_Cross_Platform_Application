@@ -4,7 +4,7 @@
  * with the user's name initials (e.g., "TK", "KD") over brand coral or background.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Image, StyleProp, ViewStyle } from 'react-native';
 import { DwelloColors } from '@/constants/Colors';
 
@@ -40,6 +40,10 @@ export function Avatar({
   const [imageFailed, setImageFailed] = useState(false);
   const initials = getInitials(name);
   const fontSize = Math.round(size * 0.4);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [uri]);
 
   const hasValidUri = Boolean(uri && uri.trim() && !imageFailed && !uri.includes('photo-1534528741775-53994a69daeb'));
 

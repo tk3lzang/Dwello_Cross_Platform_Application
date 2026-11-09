@@ -1,7 +1,5 @@
 /**
- * ListingCard Component
- * Displays property card matching Dwello Android / iOS Material Design 3 guidelines
- * and UI Snapshot Fidelity.
+ * Compact property summary card with save and detail navigation actions.
  */
 
 import React, { useState } from 'react';
@@ -11,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { PropertyListing } from '@/types/listing';
 import { useWishlist } from '@/context/WishlistContext';
+import { Avatar } from '@/components/Avatar';
 import { formatNu } from '@/utils/splitter';
 
 interface ListingCardProps {
@@ -194,6 +193,7 @@ export function ListingCard({
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={() => {
+            if (!listing.ownerId) return;
             console.log('[Dwello-Navigation Fix]: Navigating from listing card host avatar to full-screen profile:', listing.ownerName);
             router.push({
               pathname: '/public-profile/[userId]' as any,
@@ -207,11 +207,9 @@ export function ListingCard({
             });
           }}
           style={styles.hostRow}
-          accessibilityLabel={`View ${listing.ownerName}'s profile`}>
-          <View style={styles.hostAvatarCircle}>
-            <Ionicons name="person-circle-outline" size={22} color="#6B7280" />
-          </View>
-          <Text style={styles.hostName}>{listing.ownerName}</Text>
+          accessibilityLabel={`View ${listing.ownerName || 'Dwello member'}'s profile`}>
+          <Avatar uri={listing.ownerAvatar} name={listing.ownerName} size={24} />
+          <Text style={styles.hostName}>{listing.ownerName || 'Dwello member'}</Text>
           <Ionicons name="chevron-forward" size={13} color="#9CA3AF" />
         </TouchableOpacity>
       </View>
@@ -409,14 +407,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
     gap: 6,
-  },
-  hostAvatarCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   hostName: {
     fontSize: 12,

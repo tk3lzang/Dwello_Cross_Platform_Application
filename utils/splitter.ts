@@ -1,6 +1,6 @@
 /**
  * Rent & Expense Splitter Utility
- * CTE308 Project II Mathematical Computation Engine
+ * Calculates equal shares of rent and utilities among occupants.
  *
  * Implements exact multi-occupant utility division:
  * Per Person Payment = (Base Rent + Electricity + Water + WiFi + Maintenance) / Total Roommates
@@ -173,4 +173,3 @@ export function generateWhatsAppGroupSplitMessage(
     `Please settle your shares via mBOB / BNBL / BDBL at your earliest convenience. Thank you!`
   );
 }
-

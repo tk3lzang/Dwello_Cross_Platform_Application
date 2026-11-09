@@ -6,12 +6,13 @@
  */
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, Animated, Easing, Platform } from 'react-native';
+import { StyleSheet, View, Animated, Easing, Platform, AppState } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { AndroidImportance } from 'expo-notifications';
+import { registerToastHandler } from '@/services/notificationService';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -27,15 +28,18 @@ import { DwelloLogo } from '@/components/DwelloLogo';
 
 SplashScreen.preventAutoHideAsync();
 
-// Module 3: True Background Push Notification Configuration
+// Avoid duplicate system banners while the app is in the foreground.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async () => {
+    const isAppActive = AppState.currentState === 'active';
+    return {
+      shouldShowAlert: !isAppActive,
+      shouldShowBanner: !isAppActive,
+      shouldShowList: true,
+      shouldPlaySound: !isAppActive,
+      shouldSetBadge: true,
+    };
+  },
 });
 
 /**
@@ -72,23 +76,14 @@ function PushNotificationWatcher() {
 
     const handleNotificationAction = (data: any) => {
       try {
-        const listingId = data?.listingId || data?.targetId;
-        const actionType = data?.type;
-        const isRemoval =
-          actionType === 'listing_flagged' ||
-          data?.isRemovalAlert ||
-          data?.openAppeal;
-
-        if (isRemoval && listingId) {
-          console.log('[Dwello-Notifications]: Deep-linking to Appeal Form for listing:', listingId);
-          router.push({
-            pathname: '/my-listings',
-            params: { appealListingId: String(listingId) },
-          });
-        } else {
-          console.log('[Dwello-Notifications]: Deep-linking to Profile / Notifications');
-          router.push('/(tabs)/profile');
-        }
+        console.info('[Dwello-Notifications]: Opening the authenticated notification inbox', {
+          notificationId: data?.id,
+          type: data?.type,
+        });
+        router.push({
+          pathname: '/(tabs)/profile',
+          params: { openNotifications: String(Date.now()) },
+        });
       } catch (e) {
         console.error('[Dwello-Notifications Error]: Navigation error:', e);
       }
@@ -202,7 +197,15 @@ function AuthNavigationWatcher({ onReady }: { onReady: () => void }) {
  * [Dwello-Toast Portal]
  */
 function ToastPortal() {
-  const { banner } = useDebug();
+  const { banner, showDebugBanner } = useDebug();
+
+  // Register in-app Portal Toast handler for active state notifications
+  useEffect(() => {
+    registerToastHandler(showDebugBanner);
+    return () => {
+      registerToastHandler(null);
+    };
+  }, [showDebugBanner]);
 
   useEffect(() => {
     if (banner) {
@@ -360,7 +363,13 @@ export default function RootLayout() {
                   headerShown: false,
                   contentStyle: { backgroundColor: '#FFFFFF' },
                 }}>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="(tabs)"
+                  options={{
+                    headerShown: false,
+                    gestureEnabled: false,
+                  }}
+                />
                 <Stack.Screen
                   name="auth/welcome"
                   options={{
@@ -379,6 +388,7 @@ export default function RootLayout() {
                   name="auth/signup"
                   options={{
                     headerShown: false,
+                    gestureEnabled: false,
                   }}
                 />
                 <Stack.Screen
@@ -450,7 +460,7 @@ export default function RootLayout() {
                 <OfflineIndicator />
               </View>
 
-              {/* Startup Animated Splash Overlay with Dwello house & coral pin logo (Module 3) */}
+              {/* Animated brand splash screen. */}
               {splashVisible && (
                 <Animated.View
                   pointerEvents="none"

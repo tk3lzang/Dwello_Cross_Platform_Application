@@ -1,9 +1,5 @@
 /**
- * AppealFormModal Component
- * Section 3: Formal Host Appeal Submission Workflow for Flagged / Hidden Listings.
- * Allows hosts to select an appeal reason, provide detailed justification,
- * and attach supporting photographic / document proof.
- * Logging prefix: [Dwello-Moderation Error]
+ * Form for submitting an appeal and optional supporting evidence.
  */
 
 import React, { useState } from 'react';
@@ -22,9 +18,11 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
-import { ModerationService } from '@/services/moderationService';
+import {
+  MIN_APPEAL_EXPLANATION_LENGTH,
+  ModerationService,
+} from '@/services/moderationService';
 import { useDebug } from '@/context/DebugContext';
-import { useAuth } from '@/context/AuthContext';
 import { DebugBanner } from './DebugBanner';
 import { ensureMediaLibraryPermission } from '@/utils/permissions';
 
@@ -33,7 +31,7 @@ export interface AppealFormModalProps {
   onClose: () => void;
   listingId: string;
   listingTitle: string;
-  reportId?: string;
+  reportId: string;
   removalTimestamp?: string;
   onAppealSubmitted?: () => void;
 }
@@ -50,11 +48,10 @@ export function AppealFormModal({
   onClose,
   listingId,
   listingTitle,
-  reportId = 'rep-appeal-default',
+  reportId,
   removalTimestamp,
   onAppealSubmitted,
 }: AppealFormModalProps) {
-  const { user } = useAuth();
   const { showDebugBanner } = useDebug();
 
   const [selectedReason, setSelectedReason] = useState<string>(APPEAL_REASONS[0]);
@@ -102,11 +99,12 @@ export function AppealFormModal({
   };
 
   const handleSubmit = async () => {
-    if (!justification.trim()) {
+    const trimmedJustification = justification.trim();
+    if (trimmedJustification.length < MIN_APPEAL_EXPLANATION_LENGTH) {
       showDebugBanner(
         'warning',
         'Justification Required',
-        'Please explain why the policy report or flag is inaccurate.'
+        `Please provide at least ${MIN_APPEAL_EXPLANATION_LENGTH} characters explaining why the policy report or flag is inaccurate.`
       );
       return;
     }
@@ -117,13 +115,9 @@ export function AppealFormModal({
     try {
       const appeal = await ModerationService.submitAppeal({
         reportId,
-        listingId,
-        hostId: user?.id || 'owner-tandin',
-        hostName: user?.fullName || 'Tandin Kelzang',
+        appealReason: trimmedJustification,
         appealCategory: selectedReason,
-        appealReason: justification.trim(),
-        listingTitle,
-        proofImageUrl: proofImageUri || undefined,
+        proofImageUri: proofImageUri || undefined,
       });
 
       const shortId = appeal.id.slice(-6).toUpperCase();

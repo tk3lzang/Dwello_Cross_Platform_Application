@@ -1,11 +1,5 @@
 /**
- * NotificationCenter Component & NotificationBell Trigger
- * Section 2: Profile Notification Hub for moderation alerts,
- * community flags, and host appeal status updates.
- *
- * UI Enhancement: Full-screen view with Swipeable gestures (Delete & Mark Read),
- * smooth layout animations, and seamless appeal linking.
- * Logging prefix: [Dwello-Moderation Error]
+ * Notification inbox with read, delete, and appeal actions.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -36,6 +30,7 @@ import Animated, {
   interpolate,
   Extrapolation,
 } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ModerationService } from '@/services/moderationService';
 import { ModerationNotification } from '@/types/moderation';
@@ -135,19 +130,23 @@ interface NotificationBellProps {
   color?: string;
   size?: number;
   style?: StyleProp<ViewStyle>;
-  onOpenAppeal?: (listingId: string, listingTitle?: string) => void;
+  openToken?: string;
 }
 
 export function NotificationBell({
   color = '#111827',
   size = 22,
   style,
-  onOpenAppeal,
+  openToken,
 }: NotificationBellProps) {
   const { user } = useAuth();
   const userId = user?.id;
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (openToken) setIsDrawerOpen(true);
+  }, [openToken]);
 
   const fetchUnread = useCallback(async () => {
     try {
@@ -165,6 +164,28 @@ export function NotificationBell({
     });
     return () => unsubscribe();
   }, [fetchUnread]);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | null = null;
+    if (userId) {
+      ModerationService.subscribeToUserNotifications(userId)
+        .then((stop) => {
+          if (active) {
+            unsubscribe = stop;
+          } else {
+            stop();
+          }
+        })
+        .catch((error) => {
+          console.error('[Dwello-Moderation Error]: Could not subscribe to user notifications:', error);
+        });
+    }
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [userId]);
 
   return (
     <>
@@ -187,7 +208,6 @@ export function NotificationBell({
       <NotificationDrawer
         visible={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
-        onOpenAppeal={onOpenAppeal}
       />
     </>
   );
@@ -196,20 +216,20 @@ export function NotificationBell({
 interface NotificationDrawerProps {
   visible: boolean;
   onClose: () => void;
-  onOpenAppeal?: (listingId: string, listingTitle?: string) => void;
 }
 
 export function NotificationDrawer({
   visible,
   onClose,
-  onOpenAppeal,
 }: NotificationDrawerProps) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user } = useAuth();
   const userId = user?.id;
   const { showDebugBanner } = useDebug();
 
   const [notifications, setNotifications] = useState<ModerationNotification[]>([]);
+  const [eligibleNotificationIds, setEligibleNotificationIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
@@ -220,12 +240,27 @@ export function NotificationDrawer({
   const [appealModalListing, setAppealModalListing] = useState<{
     id: string;
     title: string;
+    reportId: string;
   } | null>(null);
 
   const loadNotifications = useCallback(async () => {
     try {
       const items = await ModerationService.getUserNotifications(userId);
       setNotifications(items);
+      const eligibleItems = await Promise.all(
+        items.map(async (item) => {
+          if (item.type !== 'listing_flagged' && item.type !== 'listing_removed') return null;
+          const reportId =
+            item.report_id ||
+            item.action_url?.match(/reportId=([^&]+)/)?.[1];
+          if (!reportId) return null;
+          const eligibility = await ModerationService.getAppealEligibility(reportId);
+          return eligibility ? item.id : null;
+        })
+      );
+      setEligibleNotificationIds(
+        new Set(eligibleItems.filter((notificationId): notificationId is string => !!notificationId))
+      );
     } catch (error) {
       console.error('[Dwello-Moderation Error]: Load notifications error:', error);
       showDebugBanner('error', 'Notification Error', 'Could not load notifications.');
@@ -248,81 +283,98 @@ export function NotificationDrawer({
   const handleMarkAllRead = async () => {
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       await ModerationService.markAllNotificationsRead(userId);
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       showDebugBanner('info', 'All Caught Up', 'All notifications marked as read.');
     } catch (e) {
       console.error('[Dwello-Moderation Error]: Mark all read error:', e);
+      showDebugBanner('error', 'Update Failed', 'Could not update notifications. Please try again.');
     }
   };
 
-  const handleDeleteNotification = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-    ModerationService.deleteNotification(id);
-    showDebugBanner('info', 'Notification Dismissed', 'Notification removed.');
+  const handleDeleteNotification = async (id: string) => {
+    try {
+      await ModerationService.deleteNotification(id);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      showDebugBanner('info', 'Notification Dismissed', 'Notification removed.');
+    } catch (error) {
+      console.error('[Dwello-Moderation Error]: Delete notification error:', error);
+      showDebugBanner('error', 'Update Failed', 'Could not remove notification.');
+    }
   };
 
-  const handleToggleRead = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-    ModerationService.markNotificationRead(id);
-    const ref = swipeableRefs.current.get(id);
-    ref?.close();
+  const handleToggleRead = async (id: string) => {
+    try {
+      await ModerationService.markNotificationRead(id);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+      const ref = swipeableRefs.current.get(id);
+      ref?.close();
+    } catch (error) {
+      console.error('[Dwello-Moderation Error]: Mark notification read error:', error);
+      showDebugBanner('error', 'Update Failed', 'Could not update notification.');
+    }
   };
 
   const handleNotificationPress = async (item: ModerationNotification) => {
-    // 1. Mark as read
-    if (!item.read) {
-      await ModerationService.markNotificationRead(item.id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === item.id ? { ...n, read: true } : n))
-      );
-    }
-
-    // 2. Listing removal alert directly opens Appeal Form Modal cleanly
-    const isRemovalAlert =
-      item.type === 'listing_flagged' ||
-      item.title.toLowerCase().includes('removal') ||
-      item.title.toLowerCase().includes('action taken') ||
-      item.body.toLowerCase().includes('appeal');
-
-    if (isRemovalAlert) {
-      let targetListingId = item.target_id;
-      if (!targetListingId && item.action_url) {
-        const match = item.action_url.match(/listingId=([^&]+)/);
-        if (match && match[1]) targetListingId = match[1];
-      }
-      if (!targetListingId) {
-        targetListingId = 'seed-2';
+    try {
+      // 1. Mark as read
+      if (!item.read) {
+        await ModerationService.markNotificationRead(item.id);
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === item.id ? { ...n, read: true } : n))
+        );
       }
 
-      const listingTitle = item.title.includes("'")
-        ? item.title.split("'")[1]
-        : item.body.includes("'")
-        ? item.body.split("'")[1]
-        : 'Reported Property';
+      const isRemovalAlert = item.type === 'listing_flagged' || item.type === 'listing_removed';
 
-      if (onOpenAppeal) {
-        onClose();
-        onOpenAppeal(targetListingId, listingTitle);
+      if (isRemovalAlert) {
+        const reportId =
+          item.report_id ||
+          item.action_url?.match(/reportId=([^&]+)/)?.[1];
+        const eligibility = reportId
+          ? await ModerationService.getAppealEligibility(reportId)
+          : null;
+        if (!eligibility) {
+          showDebugBanner('info', 'Appeal Unavailable', 'This moderation action is no longer eligible for an appeal.');
+          return;
+        }
+        setAppealModalListing({
+          id: eligibility.listing_id,
+          title: eligibility.listing_title,
+          reportId: eligibility.report_id,
+        });
       } else {
-        setAppealModalListing({ id: targetListingId, title: listingTitle });
+        console.info('[Dwello-Notification]: Opened moderation update', {
+          notificationId: item.id,
+          listingId: item.target_id,
+          reportId: item.report_id,
+          appealId: item.appeal_id,
+        });
+        if (item.type === 'appeal_status' && item.target_id) {
+          onClose();
+          router.push({ pathname: '/listing/[id]', params: { id: item.target_id } });
+        }
       }
+    } catch (error) {
+      console.error('[Dwello-Notification Routing Error]: Tap handling error:', error);
     }
   };
 
   const renderNotificationIcon = (type: ModerationNotification['type']) => {
     switch (type) {
       case 'listing_flagged':
+      case 'listing_removed':
         return (
           <View style={[styles.typeIconContainer, { backgroundColor: '#FEE2E2' }]}>
             <Ionicons name="alert-circle" size={20} color="#DC2626" />
           </View>
         );
       case 'appeal_status':
+      case 'appeal_approved':
         return (
           <View style={[styles.typeIconContainer, { backgroundColor: '#EFF6FF' }]}>
             <Ionicons name="shield-checkmark" size={20} color="#2563EB" />
@@ -354,7 +406,7 @@ export function NotificationDrawer({
               <DebugBanner insideModal />
             </View>
 
-            {/* Full-Page Clean Header (Module 1.2) */}
+            {/* Notification inbox header. */}
             <View style={styles.fullPageHeader}>
               <TouchableOpacity
                 onPress={onClose}
@@ -400,7 +452,7 @@ export function NotificationDrawer({
                 }
                 showsVerticalScrollIndicator={false}>
                 {notifications.length === 0 ? (
-                  // Full-Screen Clean Empty State (Module 3.2)
+                  // Empty inbox state.
                   <View style={styles.emptyContainer}>
                     <View style={styles.emptyBellCircle}>
                       <Ionicons name="notifications-outline" size={44} color="#9CA3AF" />
@@ -416,9 +468,7 @@ export function NotificationDrawer({
                 ) : (
                   notifications.map((item) => {
                     const isRemovalAlert =
-                      item.type === 'listing_flagged' ||
-                      item.title.toLowerCase().includes('removal') ||
-                      item.title.toLowerCase().includes('action taken');
+                      item.type === 'listing_flagged' || item.type === 'listing_removed';
                     return (
                       <View key={item.id} style={styles.swipeableWrapper}>
                         <ReanimatedSwipeable
@@ -497,7 +547,7 @@ export function NotificationDrawer({
                             <Text style={styles.cardBody}>{item.body}</Text>
 
                             {/* Interactive Appeal Call to Action for Removal Alerts */}
-                            {isRemovalAlert && (
+                            {isRemovalAlert && eligibleNotificationIds.has(item.id) && (
                               <View style={styles.appealActionRow}>
                                 <View style={styles.appealBadgePill}>
                                   <Ionicons
@@ -531,6 +581,7 @@ export function NotificationDrawer({
           visible={!!appealModalListing}
           listingId={appealModalListing.id}
           listingTitle={appealModalListing.title}
+          reportId={appealModalListing.reportId}
           onClose={() => setAppealModalListing(null)}
           onAppealSubmitted={() => {
             setAppealModalListing(null);

@@ -5,8 +5,10 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { AuthService } from '@/services/auth';
+import { supabase, isSupabaseConfigured } from '@/services/supabase';
 import { UserProfile, UserRole } from '@/types/auth';
 import { useDebug } from './DebugContext';
+import { normalizeBackendError } from '@/utils/backendError';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -36,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isMounted) {
           setUser(activeProfile);
           if (activeProfile) {
-            console.log('[Dwello-Auth Debug]: Smart session check restored session for:', activeProfile.fullName);
+            console.log('[Dwello-Auth Debug]: Smart session check restored an active profile.');
           }
         }
       } catch (err: any) {
@@ -51,8 +53,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     runSmartSessionCheck();
 
+    // Listen for auth events (e.g. SIGNED_OUT from any part of app or remote trigger)
+    let authSubscription: { unsubscribe: () => void } | null = null;
+    if (isSupabaseConfigured()) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event) => {
+        console.log(`[Dwello-Auth Debug]: Supabase onAuthStateChange event: ${event}`);
+        if (event === 'SIGNED_OUT') {
+          await AuthService.purgeSessionAndCache();
+          if (isMounted) {
+            setUser(null);
+          }
+        }
+      });
+      authSubscription = subscription;
+    }
+
     return () => {
       isMounted = false;
+      authSubscription?.unsubscribe();
     };
   }, []);
 
@@ -64,7 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       showDebugBanner('success', 'Logged In', `Welcome back, ${profile.fullName}!`);
       return profile;
     } catch (err: any) {
-      showDebugBanner('error', 'Authentication Failed', err.message || 'Login failed.');
+      const norm = normalizeBackendError(err);
+      showDebugBanner(
+        'error',
+        norm.category === 'dns'
+          ? 'DNS Connection Error'
+          : norm.category === 'authentication'
+          ? 'Authentication Notice'
+          : 'Login Failed',
+        norm.userFacingMessage || err.message || 'Login failed.'
+      );
       throw err;
     } finally {
       setIsLoading(false);
@@ -85,7 +112,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       showDebugBanner('success', 'Account Created', `Welcome to Dwello, ${profile.fullName}!`);
       return profile;
     } catch (err: any) {
-      showDebugBanner('error', 'Sign Up Failed', err.message || 'Account registration failed.');
+      const norm = normalizeBackendError(err);
+      showDebugBanner(
+        'error',
+        norm.category === 'dns'
+          ? 'DNS Connection Error'
+          : norm.category === 'authentication'
+          ? 'Registration Notice'
+          : 'Sign Up Failed',
+        norm.userFacingMessage || err.message || 'Account registration failed.'
+      );
       throw err;
     } finally {
       setIsLoading(false);
@@ -158,4 +194,3 @@ export function useAuth() {
   }
   return context;
 }
-

@@ -1,7 +1,5 @@
 /**
- * Host Appeal Modal Component
- * Section 4: Allows property hosts to submit an appeal / justification
- * for listings flagged or hidden by community moderation.
+ * Modal for hosts to submit an appeal for a moderated listing.
  */
 
 import React, { useState } from 'react';
@@ -17,9 +15,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
-import { ModerationService } from '@/services/moderationService';
+import {
+  MIN_APPEAL_EXPLANATION_LENGTH,
+  ModerationService,
+} from '@/services/moderationService';
 import { useDebug } from '@/context/DebugContext';
-import { useAuth } from '@/context/AuthContext';
 import { DebugBanner } from './DebugBanner';
 
 interface AppealModalProps {
@@ -27,7 +27,7 @@ interface AppealModalProps {
   onClose: () => void;
   listingId: string;
   listingTitle: string;
-  reportId?: string;
+  reportId: string;
   onAppealSubmitted?: () => void;
 }
 
@@ -36,10 +36,9 @@ export function AppealModal({
   onClose,
   listingId,
   listingTitle,
-  reportId = 'rep-appeal-default',
+  reportId,
   onAppealSubmitted,
 }: AppealModalProps) {
-  const { user } = useAuth();
   const { showDebugBanner } = useDebug();
   const [appealReason, setAppealReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,8 +49,13 @@ export function AppealModal({
   };
 
   const handleSubmit = async () => {
-    if (!appealReason.trim()) {
-      showDebugBanner('warning', 'Explanation Required', 'Please explain why your listing is accurate and compliant.');
+    const trimmedReason = appealReason.trim();
+    if (trimmedReason.length < MIN_APPEAL_EXPLANATION_LENGTH) {
+      showDebugBanner(
+        'warning',
+        'Explanation Required',
+        `Please provide at least ${MIN_APPEAL_EXPLANATION_LENGTH} characters explaining why your listing is accurate and compliant.`
+      );
       return;
     }
 
@@ -60,11 +64,8 @@ export function AppealModal({
     try {
       await ModerationService.submitAppeal({
         reportId,
-        listingId,
-        hostId: user?.id || 'owner-tandin',
-        hostName: user?.fullName || 'Tandin Kelzang',
-        appealReason: appealReason.trim(),
-        listingTitle,
+        appealReason: trimmedReason,
+        appealCategory: 'Other',
       });
 
       showDebugBanner(

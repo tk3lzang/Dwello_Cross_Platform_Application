@@ -1,8 +1,5 @@
 /**
- * Welcome & Authentication Landing Screen
- * Section 1 & UI Snapshot Fidelity (Project I)
- * Displays the official Dwello brand logo, value proposition,
- * municipal zone pill, and options to Create Account or Log In.
+ * Welcome screen with sign-up and login entry points.
  */
 
 import React from 'react';

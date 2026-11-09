@@ -1,6 +1,5 @@
 /**
- * Account Details & Profile Editor Screen
- * Project II Feature 1: Expanded profile editing (bio, verified contact, preferences, budget, habits).
+ * Profile editor for contact details and housing preferences.
  */
 
 import React, { useState } from 'react';
@@ -38,8 +37,8 @@ export default function AccountDetailsScreen() {
   const [role, setRole] = useState<UserRole>(user?.role || 'Tenant');
   const [bio, setBio] = useState(user?.bio || '');
   const [occupation, setOccupation] = useState(user?.occupation || '');
-  const [preferredZone, setPreferredZone] = useState(user?.preferredZone || 'Rinchending (CST)');
-  const [budget, setBudget] = useState(user?.budget ? user.budget.toString() : '10000');
+  const [preferredZone, setPreferredZone] = useState(user?.preferredZone || '');
+  const [budget, setBudget] = useState(user?.budget ? user.budget.toString() : '');
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>(user?.gender || 'Male');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -69,7 +68,7 @@ export default function AccountDetailsScreen() {
         bio: bio.trim(),
         occupation: occupation.trim(),
         preferredZone: preferredZone.trim(),
-        budget: parseFloat(budget) || 10000,
+        budget: budget ? parseFloat(budget) || 0 : undefined,
         gender,
       });
 
@@ -105,7 +104,7 @@ export default function AccountDetailsScreen() {
           style={styles.input}
           value={fullName}
           onChangeText={setFullName}
-          placeholder="Tandin Kelzang"
+          placeholder="Enter your full name"
         />
 
         {/* WhatsApp Phone Number */}
@@ -122,7 +121,7 @@ export default function AccountDetailsScreen() {
         <Text style={styles.label}>Email Address</Text>
         <TextInput
           style={[styles.input, styles.disabledInput]}
-          value={user?.email || 'user@rub.edu.bt'}
+          value={user?.email || 'No email registered'}
           editable={false}
         />
 
@@ -167,7 +166,7 @@ export default function AccountDetailsScreen() {
           value={budget}
           onChangeText={setBudget}
           keyboardType="numeric"
-          placeholder="10000"
+          placeholder="e.g., 10000"
         />
 
         {/* Gender */}
@@ -305,4 +304,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-

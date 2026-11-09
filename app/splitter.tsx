@@ -1,10 +1,8 @@
 /**
- * Rent & Expense Splitter Tool
- * Section 9 of Dwello App Manual & Project II Objective 2.
- * Calculates individual shared utility costs and generates customized WhatsApp payment reminder messages.
+ * Calculates shared rent and utility costs and prepares payment reminders.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -28,28 +26,70 @@ import {
 } from '@/utils/splitter';
 import { sendWhatsAppWithFallback } from '@/utils/linking';
 import { useDebug } from '@/context/DebugContext';
+import { useAuth } from '@/context/AuthContext';
+import { StorageService } from '@/services/storage';
 
 export default function SplitterScreen() {
   const params = useLocalSearchParams<{ baseRent?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { showDebugBanner } = useDebug();
+  const { user } = useAuth();
 
-  // Initial state pre-filled if opened from a property card
-  const [baseRent, setBaseRent] = useState(params.baseRent || '10000');
-  const [electricity, setElectricity] = useState('1000');
-  const [water, setWater] = useState('500');
-  const [wifi, setWifi] = useState('1500');
-  const [maintenance, setMaintenance] = useState('0');
+  // Initial state empty / $0 for new users; restores persisted user state
+  const [baseRent, setBaseRent] = useState(params.baseRent || '');
+  const [electricity, setElectricity] = useState('');
+  const [water, setWater] = useState('');
+  const [wifi, setWifi] = useState('');
+  const [maintenance, setMaintenance] = useState('');
+  const [contacts, setContacts] = useState<{ id: string; name: string; phone: string }[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Dynamic Contact Management (No hardcoded mock accounts)
-  const [contacts, setContacts] = useState<{ id: string; name: string; phone: string }[]>([
-    { id: 'c1', name: 'Karma', phone: '17123456' },
-    { id: 'c2', name: 'Sonam', phone: '77654321' },
-  ]);
   const [newContactName, setNewContactName] = useState('');
   const [newContactPhone, setNewContactPhone] = useState('');
   const [showAddContactForm, setShowAddContactForm] = useState(false);
+
+  // Restore user-scoped state on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function restoreState() {
+      try {
+        const saved = await StorageService.getSplitterState(user?.id);
+        if (saved && isMounted) {
+          if (!params.baseRent && saved.baseRent !== undefined) setBaseRent(saved.baseRent);
+          if (saved.electricity !== undefined) setElectricity(saved.electricity);
+          if (saved.water !== undefined) setWater(saved.water);
+          if (saved.wifi !== undefined) setWifi(saved.wifi);
+          if (saved.maintenance !== undefined) setMaintenance(saved.maintenance);
+          if (Array.isArray(saved.contacts)) setContacts(saved.contacts);
+        }
+      } catch (err) {
+        console.warn('[Dwello-Splitter Debug]: Error loading splitter state:', err);
+      } finally {
+        if (isMounted) setIsLoaded(true);
+      }
+    }
+    restoreState();
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, params.baseRent]);
+
+  // Persist state per user_id whenever values change
+  useEffect(() => {
+    if (!isLoaded) return;
+    StorageService.saveSplitterState(
+      {
+        baseRent,
+        electricity,
+        water,
+        wifi,
+        maintenance,
+        contacts,
+      },
+      user?.id
+    );
+  }, [baseRent, electricity, water, wifi, maintenance, contacts, isLoaded, user?.id]);
 
   const roommateCount = Math.max(1, contacts.length);
   const occupantNames = useMemo(
@@ -192,7 +232,7 @@ export default function SplitterScreen() {
     <KeyboardAvoidingView
       style={[styles.screen, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      {/* Header (Manual Page 12 & 17) */}
+      {/* Expense splitter header. */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="close" size={24} color="#111827" />
@@ -218,7 +258,7 @@ export default function SplitterScreen() {
             keyboardType="numeric"
             value={baseRent}
             onChangeText={setBaseRent}
-            placeholder="10000"
+            placeholder="0"
           />
         </View>
 
@@ -326,65 +366,75 @@ export default function SplitterScreen() {
 
         {/* Dynamic Contacts List */}
         <View style={styles.contactsListContainer}>
-          {contacts.map((contact, idx) => (
-            <View key={contact.id} style={styles.occupantCard}>
-              <View style={styles.occupantLeft}>
-                <Ionicons
-                  name="person-circle-outline"
-                  size={32}
-                  color="#6B7280"
-                  style={{ marginRight: 8 }}
-                />
-                <View style={styles.occupantInputCol}>
-                  <TextInput
-                    style={styles.occupantNameInput}
-                    value={contact.name}
-                    onChangeText={(txt) => updateContact(contact.id, 'name', txt)}
-                    placeholder={`Roommate ${idx + 1}`}
+          {contacts.length === 0 ? (
+            <View style={styles.emptyContactsCard}>
+              <Ionicons name="people-outline" size={32} color="#9CA3AF" />
+              <Text style={styles.emptyContactsTitle}>No roommates added yet</Text>
+              <Text style={styles.emptyContactsSubtitle}>
+                Tap &quot;Add Contact&quot; above to split rent and expenses with your roommates.
+              </Text>
+            </View>
+          ) : (
+            contacts.map((contact, idx) => (
+              <View key={contact.id} style={styles.occupantCard}>
+                <View style={styles.occupantLeft}>
+                  <Ionicons
+                    name="person-circle-outline"
+                    size={32}
+                    color="#6B7280"
+                    style={{ marginRight: 8 }}
                   />
-                  <TextInput
-                    style={styles.occupantPhoneInput}
-                    value={contact.phone}
-                    onChangeText={(txt) => updateContact(contact.id, 'phone', txt)}
-                    placeholder="WhatsApp No. (e.g. 17123456)"
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="phone-pad"
-                  />
+                  <View style={styles.occupantInputCol}>
+                    <TextInput
+                      style={styles.occupantNameInput}
+                      value={contact.name}
+                      onChangeText={(txt) => updateContact(contact.id, 'name', txt)}
+                      placeholder={`Roommate ${idx + 1}`}
+                    />
+                    <TextInput
+                      style={styles.occupantPhoneInput}
+                      value={contact.phone}
+                      onChangeText={(txt) => updateContact(contact.id, 'phone', txt)}
+                      placeholder="WhatsApp No. (e.g. 17123456)"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.occupantRight}>
+                  <Text style={styles.occupantShareText}>{formatNu(splitResult.perPersonShare)}</Text>
+                  {/* Copy Individual Breakdown Action */}
+                  <TouchableOpacity
+                    onPress={() => handleCopyBreakdown(contact, idx)}
+                    style={styles.occupantCopyBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                    accessibilityLabel={`Copy breakdown for ${contact.name}`}>
+                    <Ionicons name="copy-outline" size={15} color="#4B5563" />
+                  </TouchableOpacity>
+                  {/* Direct WhatsApp Action */}
+                  <TouchableOpacity
+                    onPress={() => handleDirectContactShare(contact, idx)}
+                    style={styles.occupantShareBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                    accessibilityLabel={`Send WhatsApp to ${contact.name}`}>
+                    <Ionicons name="logo-whatsapp" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  {/* Remove Contact Action */}
+                  <TouchableOpacity
+                    onPress={() => handleRemoveContact(contact.id, contact.name)}
+                    style={styles.removeContactBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                    accessibilityLabel={`Remove ${contact.name}`}>
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                  </TouchableOpacity>
                 </View>
               </View>
-
-              <View style={styles.occupantRight}>
-                <Text style={styles.occupantShareText}>{formatNu(splitResult.perPersonShare)}</Text>
-                {/* Copy Individual Breakdown Action */}
-                <TouchableOpacity
-                  onPress={() => handleCopyBreakdown(contact, idx)}
-                  style={styles.occupantCopyBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                  accessibilityLabel={`Copy breakdown for ${contact.name}`}>
-                  <Ionicons name="copy-outline" size={15} color="#4B5563" />
-                </TouchableOpacity>
-                {/* Direct WhatsApp Action */}
-                <TouchableOpacity
-                  onPress={() => handleDirectContactShare(contact, idx)}
-                  style={styles.occupantShareBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                  accessibilityLabel={`Send WhatsApp to ${contact.name}`}>
-                  <Ionicons name="logo-whatsapp" size={16} color="#FFFFFF" />
-                </TouchableOpacity>
-                {/* Remove Contact Action */}
-                <TouchableOpacity
-                  onPress={() => handleRemoveContact(contact.id, contact.name)}
-                  style={styles.removeContactBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                  accessibilityLabel={`Remove ${contact.name}`}>
-                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
 
-        {/* Calculation Result Summary Card (Manual Page 12 & 17) */}
+        {/* Total and per-person cost summary. */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryHeaderRow}>
             <View>
@@ -430,10 +480,10 @@ export default function SplitterScreen() {
           activeOpacity={0.88}
           style={styles.whatsAppShareBtn}>
           <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-          <Text style={styles.whatsAppShareText}>
+          <Text style={styles.whatsAppShareText} numberOfLines={1}>
             {contacts.length <= 1
               ? `Message ${contacts[0]?.name || 'Roommate'} on WhatsApp`
-              : `Send WhatsApp Reminders (${contacts.length} Roommates)`}
+              : 'Send WhatsApp Reminders'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -605,6 +655,31 @@ const styles = StyleSheet.create({
   contactsListContainer: {
     marginBottom: 16,
   },
+  emptyContactsCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    marginBottom: 16,
+  },
+  emptyContactsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+    marginTop: 8,
+  },
+  emptyContactsSubtitle: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
+  },
   occupantInputCol: {
     flex: 1,
   },
@@ -740,6 +815,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: DwelloColors.primary,
     paddingVertical: 15,
+    paddingHorizontal: 16,
     borderRadius: 12,
     marginTop: 16,
     ...Platform.select({
@@ -760,4 +836,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-

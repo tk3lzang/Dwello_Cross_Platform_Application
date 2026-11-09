@@ -11,6 +11,13 @@
 import { calculateExpenseSplit, formatNu, generateWhatsAppSplitMessage } from '../utils/splitter';
 import { formatWhatsAppPhone, openWhatsAppChat } from '../utils/linking';
 import { validateBhutanPhone, validateEmail, validatePassword } from '../utils/validation';
+import { normalizeBackendError } from '../utils/backendError';
+import {
+  distanceBetweenCoordinates,
+  filterListingsByLocation,
+  GeocodingService,
+  getLocationSearchRadius,
+} from '../services/geocodingService';
 
 // ---------------------------------------------------------------------------
 // 1. RENT & EXPENSE SPLITTER TESTS
@@ -289,6 +296,27 @@ describe('[Dwello-Test Debug] Listing Validation — validatePassword', () => {
   });
 });
 
+describe('Authentication error messages', () => {
+  test('identifies an existing account and recommends logging in', () => {
+    const result = normalizeBackendError(
+      new Error('An account with this email already exists. Please log in instead.')
+    );
+
+    expect(result.category).toBe('authentication');
+    expect(result.code).toBe('USER_ALREADY_EXISTS');
+    expect(result.userFacingMessage).toBe(
+      'An account with this email already exists. Please log in instead.'
+    );
+  });
+
+  test('maps invalid login credentials to a clear message', () => {
+    const result = normalizeBackendError(new Error('Invalid login credentials'));
+
+    expect(result.category).toBe('authentication');
+    expect(result.userFacingMessage).toBe('Incorrect email or password.');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 4. LISTING SUBMISSION VALIDATION — Required Field Checks
 // ---------------------------------------------------------------------------
@@ -330,6 +358,7 @@ describe('[Dwello-Test Debug] Listing Submission — Required Field Validation',
       bhkType: '2BHK',
       title: 'Cozy Flat in Babesa',
     });
+
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
@@ -391,5 +420,77 @@ describe('[Dwello-Test Debug] Listing Submission — Required Field Validation',
       title: 'Min Listing',
     });
     expect(result.valid).toBe(true);
+  });
+});
+
+describe('Bhutan location search', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('searches only Bhutan and parses the geocoded point and bounds', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          lat: '27.4305',
+          lon: '89.4127',
+          display_name: 'Paro, Bhutan',
+          boundingbox: ['27.42', '27.44', '89.40', '89.43'],
+          address: { country_code: 'bt' },
+        },
+      ],
+    } as Response);
+
+    const result = await GeocodingService.searchLocation('Paro town test');
+
+    expect(result).toEqual({
+      latitude: 27.4305,
+      longitude: 89.4127,
+      displayName: 'Paro, Bhutan',
+      bounds: { south: 27.42, north: 27.44, west: 89.4, east: 89.43 },
+    });
+    const requestedUrl = String(fetchMock.mock.calls[0][0]);
+    expect(requestedUrl).toContain('countrycodes=bt');
+    expect(requestedUrl).toContain('Paro%20town%20test%2C%20Bhutan');
+  });
+
+  test('returns no location when the provider has no Bhutan match', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    } as Response);
+
+    await expect(GeocodingService.searchLocation('No result test')).resolves.toBeNull();
+  });
+
+  test('filters located listings by the searched area and keeps missing coordinates out', () => {
+    const location = {
+      latitude: 27.4305,
+      longitude: 89.4127,
+      displayName: 'Paro, Bhutan',
+      bounds: { south: 27.42, north: 27.44, west: 89.4, east: 89.43 },
+    };
+    const listings = [
+      { id: 'near', latitude: 27.431, longitude: 89.413 },
+      { id: 'far', latitude: 27.6, longitude: 89.8 },
+      { id: 'invalid', latitude: Number.NaN, longitude: 89.4 },
+    ];
+
+    expect(filterListingsByLocation(listings, location).map((listing) => listing.id)).toEqual([
+      'near',
+    ]);
+    expect(getLocationSearchRadius(location)).toBeGreaterThanOrEqual(2500);
+    expect(distanceBetweenCoordinates(27.43, 89.41, 27.43, 89.41)).toBe(0);
+  });
+
+  test('uses the nearest dzongkhag for Bhutan locations outside known localities', () => {
+    expect(GeocodingService.getInstantEstimate(27.47, 90.73)).toEqual({
+      locality: 'Bumthang',
+      cityOrDistrict: 'Bumthang',
+      formattedDisplay: 'Bumthang Dzongkhag',
+    });
   });
 });

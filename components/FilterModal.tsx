@@ -1,6 +1,5 @@
 /**
- * Multi-Filter Control Panel Modal
- * Matches page 4 & 6 of the Dwello App Manual.
+ * Modal for refining listing search criteria.
  */
 
 import React, { useState } from 'react';
@@ -24,7 +23,8 @@ interface FilterModalProps {
   onClose: () => void;
   filters: ListingFilterState;
   onApplyFilters: (updated: ListingFilterState) => void;
-  totalResultsCount: number;
+  getResultsCount: (filters: ListingFilterState) => number;
+  showRoommatePreferences?: boolean;
 }
 
 const AMENITY_OPTIONS = ['Water Included', 'Parking', 'WiFi', 'Furnished'];
@@ -47,7 +47,8 @@ export function FilterModal({
   onClose,
   filters,
   onApplyFilters,
-  totalResultsCount,
+  getResultsCount,
+  showRoommatePreferences = false,
 }: FilterModalProps) {
   const [localFilters, setLocalFilters] = useState<ListingFilterState>(filters);
 
@@ -99,6 +100,7 @@ export function FilterModal({
 
   const handleReset = () => {
     const resetState: ListingFilterState = {
+      category: localFilters.category,
       searchQuery: '',
       maxRent: 100000,
       bhkType: 'Any',
@@ -115,6 +117,8 @@ export function FilterModal({
     onApplyFilters(localFilters);
     onClose();
   };
+
+  const resultCount = getResultsCount(localFilters);
 
   // Conditionally unmount on Android to prevent ghost-render of pageSheet modal
   if (!visible) return null;
@@ -159,25 +163,26 @@ export function FilterModal({
             </View>
           </View>
 
-          {/* Roommate Preferences */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Roommate Preferences</Text>
-            <View style={styles.chipsContainer}>
-              {ROOMMATE_PREF_OPTIONS.map((item) => {
-                const active = localFilters.roommatePreferences.includes(item);
-                return (
-                  <TouchableOpacity
-                    key={item}
-                    onPress={() => toggleRoommatePref(item)}
-                    style={[styles.filterChip, active && styles.activeFilterChip]}>
-                    <Text style={[styles.filterChipText, active && styles.activeFilterChipText]}>
-                      {item}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+          {showRoommatePreferences && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Roommate Preferences</Text>
+              <View style={styles.chipsContainer}>
+                {ROOMMATE_PREF_OPTIONS.map((item) => {
+                  const active = localFilters.roommatePreferences.includes(item);
+                  return (
+                    <TouchableOpacity
+                      key={item}
+                      onPress={() => toggleRoommatePref(item)}
+                      style={[styles.filterChip, active && styles.activeFilterChip]}>
+                      <Text style={[styles.filterChipText, active && styles.activeFilterChipText]}>
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Municipal Zone */}
           <View style={styles.section}>
@@ -266,7 +271,7 @@ export function FilterModal({
         <View style={styles.bottomBar}>
           <TouchableOpacity onPress={handleApply} style={styles.applyBtn} activeOpacity={0.88}>
             <Text style={styles.applyBtnText}>
-              Show {totalResultsCount} {totalResultsCount === 1 ? 'result' : 'results'}
+              Show {resultCount} {resultCount === 1 ? 'result' : 'results'}
             </Text>
           </TouchableOpacity>
         </View>

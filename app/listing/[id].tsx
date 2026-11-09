@@ -1,7 +1,5 @@
 /**
- * Property & Roommate Detail Deep-Dive Screen
- * Section 4 of Dwello App Manual.
- * Photo carousel, property specifications, amenities, owner controls, and sticky contact dock (Call & WhatsApp).
+ * Listing details, advertiser actions, and direct contact options.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -26,6 +24,8 @@ import { useWishlist } from '@/context/WishlistContext';
 import { useListings } from '@/context/ListingsContext';
 import { useDebug } from '@/context/DebugContext';
 import { OfflineSyncService } from '@/services/offlineSync';
+import { AuthService } from '@/services/auth';
+import { DatabaseService } from '@/services/database';
 import { formatNu } from '@/utils/splitter';
 import { openWhatsAppChat, callPhoneNumber, shareRichListing } from '@/utils/linking';
 
@@ -49,6 +49,17 @@ export default function ListingDetailScreen() {
     }
   }, [listing]);
 
+  useEffect(() => {
+    if (!listing?.ownerId) return;
+    AuthService.fetchPublicProfile(listing.ownerId)
+      .then((profile) => {
+        if (profile) DatabaseService.updateListingsOwnerProfile(profile);
+      })
+      .catch((error) => {
+        console.error('[Dwello-Profile Error]: Could not refresh the listing owner profile:', error);
+      });
+  }, [listing?.ownerId]);
+
   if (!listing) {
     return (
       <View style={styles.errorContainer}>
@@ -61,7 +72,8 @@ export default function ListingDetailScreen() {
     );
   }
 
-  const isOwner = user?.id === listing.ownerId || listing.ownerId === 'owner-tandin';
+  const isOwner = !!user?.id && user.id === listing.ownerId;
+  const ownerDisplayName = listing.ownerName || 'Dwello member';
   const saved = isWishlisted(listing.id);
 
   const handleShare = async () => {
@@ -91,7 +103,7 @@ export default function ListingDetailScreen() {
   };
 
   const handleWhatsAppContact = () => {
-    const inquiryMessage = `Hello ${listing.ownerName}, I saw your listing "${listing.title}" in ${listing.zoneArea} on Dwello Bhutan and would like to inquire about availability.`;
+    const inquiryMessage = `Hello ${ownerDisplayName}, I saw your listing "${listing.title}" in ${listing.zoneArea} on Dwello Bhutan and would like to inquire about availability.`;
     openWhatsAppChat(listing.ownerPhone, inquiryMessage);
   };
 
@@ -135,7 +147,7 @@ export default function ListingDetailScreen() {
 
         {/* Content Body */}
         <View style={styles.body}>
-          {/* Title and Owner Quick Controls Row (Manual Page 8) */}
+          {/* Listing title and owner controls. */}
           <View style={styles.titleHeaderRow}>
             <View style={styles.titleWrapper}>
               <Text style={styles.title}>{listing.title}</Text>
@@ -200,7 +212,7 @@ export default function ListingDetailScreen() {
           {/* Financial / Lease Specifications */}
           {(listing.securityDeposit || listing.leasePeriod) && (
             <View style={styles.leaseSpecsBox}>
-              {listing.securityDeposit && (
+              {listing.securityDeposit != null && listing.securityDeposit > 0 && (
                 <Text style={styles.specLine}>
                   <Text style={styles.specBold}>Security Deposit: </Text>
                   {formatNu(listing.securityDeposit)}
@@ -259,16 +271,17 @@ export default function ListingDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Sticky Contact Dock (Manual Section 4.1) */}
+      {/* Contact details and actions. */}
       <View style={[styles.stickyContactDock, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity
           onPress={() => {
-            console.log('[Dwello-Navigation Debug]: Navigating from listing to host profile:', listing.ownerName);
+            if (!listing.ownerId) return;
+            console.log('[Dwello-Navigation Debug]: Navigating from listing to host profile:', ownerDisplayName);
             router.push({
               pathname: '/public-profile/[userId]' as any,
               params: {
-                userId: listing.ownerId || 'host-profile',
-                ownerName: listing.ownerName,
+                userId: listing.ownerId,
+                ownerName: ownerDisplayName,
                 ownerPhone: listing.ownerPhone,
                 ownerRole: listing.ownerRole,
                 ownerAvatar: listing.ownerAvatar,
@@ -277,11 +290,14 @@ export default function ListingDetailScreen() {
           }}
           activeOpacity={0.7}
           style={styles.ownerInfoLeft}
-          accessibilityLabel={`View ${listing.ownerName || 'host'}'s profile`}>
-          <Avatar uri={listing.ownerAvatar} name={listing.ownerName || 'Sangay D'} size={44} />
+          accessibilityLabel={`View ${ownerDisplayName}'s profile`}>
+          <Avatar uri={listing.ownerAvatar} name={ownerDisplayName} size={44} />
           <View style={styles.ownerTextCol}>
-            <Text style={styles.contactOwnerName}>{listing.ownerName || 'Sangay D'}</Text>
+            <Text style={styles.contactOwnerName}>{ownerDisplayName}</Text>
             <Text style={styles.contactOwnerRole}>{listing.ownerRole || 'Landlord / Host'}</Text>
+            {listing.contactName && listing.contactName !== ownerDisplayName ? (
+              <Text style={styles.contactOwnerRole}>Contact: {listing.contactName}</Text>
+            ) : null}
           </View>
         </TouchableOpacity>
 
@@ -309,7 +325,6 @@ export default function ListingDetailScreen() {
         visible={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
         listingId={listing.id}
-        listingTitle={listing.title}
       />
     </View>
   );
@@ -630,4 +645,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-

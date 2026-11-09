@@ -1,7 +1,5 @@
 /**
- * Profile & Account Preferences Workspace
- * Section 10 of Dwello App Manual.
- * Manages user profile information, photo avatar updates, Bhutanese localization, and settings.
+ * User profile, account preferences, and app settings.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,10 +12,10 @@ import {
   Switch,
   Alert,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
@@ -27,10 +25,12 @@ import { useDebug } from '@/context/DebugContext';
 import { StorageService } from '@/services/storage';
 import { ensureMediaLibraryPermission, ensureCameraPermission } from '@/utils/permissions';
 import { NotificationBell } from '@/components/NotificationCenter';
+import { ModerationService } from '@/services/moderationService';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ openNotifications?: string }>();
   const { user, logout, updateProfile } = useAuth();
   const { showDebugBanner } = useDebug();
 
@@ -38,26 +38,41 @@ export default function ProfileScreen() {
     user?.notificationsEnabled ?? true
   );
   const [language, setLanguage] = useState<'English' | 'Dzongkha'>('English');
-  const [demoAdminEnabled, setDemoAdminEnabled] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
+  const [isAvatarUpdating, setIsAvatarUpdating] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('@dwello_demo_admin')
-      .then((val) => {
-        if (val === 'true') setDemoAdminEnabled(true);
-      })
-      .catch((e) => console.warn('[Dwello-Moderation Error]: Failed to read demo admin setting:', e));
-  }, []);
+    let active = true;
+    setIsModerator(false);
+    if (user?.id) {
+      ModerationService.isCurrentUserModerator()
+        .then((authorized) => {
+          if (active) setIsModerator(authorized);
+        })
+        .catch((error) => {
+          console.warn('[Dwello-Moderation Warning]: Could not verify moderator access:', error);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
-  const handleToggleDemoAdmin = async (val: boolean) => {
-    setDemoAdminEnabled(val);
+  const saveAvatar = async (uri: string) => {
+    if (isAvatarUpdating) return;
+    setIsAvatarUpdating(true);
     try {
-      await AsyncStorage.setItem('@dwello_demo_admin', val ? 'true' : 'false');
-    } catch (e) {
-      console.warn('[Dwello-Moderation Error]: Failed to save demo admin setting:', e);
+      await updateProfile({ avatarUrl: uri });
+      showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
+    } catch (err: any) {
+      showDebugBanner('error', 'Avatar Update Failed', err.message || 'Could not save your profile photo.');
+    } finally {
+      setIsAvatarUpdating(false);
     }
   };
 
   const handleAvatarPicker = () => {
+    if (isAvatarUpdating) return;
     console.log('[Dwello-Auth Debug]: Initiating profile avatar picker...');
     Alert.alert('Update Profile Photo', 'Choose how you want to update your profile photo:', [
       {
@@ -75,13 +90,12 @@ export default function ProfileScreen() {
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
               const newUri = result.assets[0].uri;
-              console.log('[Dwello-Auth Debug]: Avatar updated with new image:', newUri);
-              await updateProfile({ avatarUrl: newUri });
-              showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
+              console.log('[Dwello-Auth Debug]: Saving selected profile photo.');
+              await saveAvatar(newUri);
             }
           } catch (err: any) {
             console.error('[Dwello-Error Debug]: Avatar pick error:', err);
-            showDebugBanner('error', 'Avatar Error', 'Could not select photo.');
+            showDebugBanner('error', 'Avatar Error', err.message || 'Could not select photo.');
           }
         },
       },
@@ -100,13 +114,12 @@ export default function ProfileScreen() {
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
               const newUri = result.assets[0].uri;
-              console.log('[Dwello-Auth Debug]: Avatar captured with camera:', newUri);
-              await updateProfile({ avatarUrl: newUri });
-              showDebugBanner('success', 'Profile Photo Updated', 'Your profile picture has been updated.');
+              console.log('[Dwello-Auth Debug]: Saving captured profile photo.');
+              await saveAvatar(newUri);
             }
           } catch (err: any) {
             console.error('[Dwello-Error Debug]: Camera capture error:', err);
-            showDebugBanner('error', 'Camera Error', 'Could not capture photo.');
+            showDebugBanner('error', 'Camera Error', err.message || 'Could not capture photo.');
           }
         },
       },
@@ -155,27 +168,32 @@ export default function ProfileScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Profile</Text>
-        <NotificationBell />
+        <NotificationBell openToken={params.openNotifications} />
       </View>
 
       <ScrollView
         style={styles.scrollBody}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
-        {/* Profile Card (Manual Page 11 & 18) */}
+        {/* Profile summary. */}
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
-            <Avatar uri={user?.avatarUrl} name={user?.fullName || 'Tandin Kelzang'} size={88} />
+            <Avatar uri={user?.avatarUrl} name={user?.fullName || 'Dwello User'} size={88} />
             <TouchableOpacity
               onPress={handleAvatarPicker}
+              disabled={isAvatarUpdating}
               activeOpacity={0.8}
               style={styles.cameraBadge}>
-              <Ionicons name="camera" size={14} color="#FFFFFF" />
+              {isAvatarUpdating ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={14} color="#FFFFFF" />
+              )}
             </TouchableOpacity>
           </View>
 
           <View style={styles.nameRow}>
-            <Text style={styles.userName}>{user?.fullName || 'Tandin Kelzang'}</Text>
+            <Text style={styles.userName}>{user?.fullName || 'Add your name'}</Text>
             <TouchableOpacity
               onPress={() => router.push('/account-details')}
               style={styles.editPencil}>
@@ -183,16 +201,36 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.userEmail}>{user?.email || '02240180.cst@rub.edu.bt'}</Text>
+          <Text style={styles.userEmail}>{user?.email || 'No email registered'}</Text>
 
           <View style={styles.whatsappRow}>
             <Ionicons name="logo-whatsapp" size={14} color={DwelloColors.whatsappGreen} />
             <Text style={styles.whatsappNumber}>
-              {user?.phoneNumber || '17777777'}
+              {user?.phoneNumber || 'Add WhatsApp number'}
             </Text>
           </View>
 
-          <Text style={styles.memberSince}>Member since 2026</Text>
+          {/* User Bio / Placeholder for Clean Slate */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => router.push('/account-details')}
+            style={styles.bioContainer}>
+            <Text
+              style={[
+                styles.bioText,
+                !user?.bio && styles.placeholderBioText,
+              ]}>
+              {user?.bio && user.bio.trim().length > 0
+                ? user.bio
+                : 'Add a bio & lifestyle preferences'}
+            </Text>
+          </TouchableOpacity>
+
+          <Text style={styles.memberSince}>
+            {user?.createdAt
+              ? `Member since ${new Date(user.createdAt).getFullYear()}`
+              : 'New Member'}
+          </Text>
         </View>
 
         {/* Settings Title */}
@@ -213,7 +251,7 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
 
-          {/* My Listings (Section 6 & 7) */}
+          {/* Advertiser listing management. */}
           <TouchableOpacity
             style={styles.menuItem}
             activeOpacity={0.7}
@@ -292,7 +330,7 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
 
-          {/* Help & Support (Section 10 & 11) */}
+          {/* Support contact options. */}
           <TouchableOpacity
             style={styles.menuItem}
             activeOpacity={0.7}
@@ -306,28 +344,7 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
 
-          {/* Demo Admin Mode Toggle (Directive Module 3) */}
-          <View style={styles.menuItem}>
-            <View style={styles.menuLeft}>
-              <View style={[styles.iconCircle, demoAdminEnabled && { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons
-                  name="shield-half-outline"
-                  size={18}
-                  color={demoAdminEnabled ? '#D97706' : '#111827'}
-                />
-              </View>
-              <Text style={styles.menuLabel}>Demo Admin Mode</Text>
-            </View>
-            <Switch
-              value={demoAdminEnabled}
-              onValueChange={handleToggleDemoAdmin}
-              trackColor={{ false: '#D1D5DB', true: '#D97706' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          {/* Conditional Admin Moderation Link */}
-          {demoAdminEnabled && (
+          {isModerator && (
             <TouchableOpacity
               style={[styles.menuItem, { backgroundColor: '#FFFBEB' }]}
               activeOpacity={0.7}
@@ -337,7 +354,7 @@ export default function ProfileScreen() {
                   <Ionicons name="shield-checkmark" size={18} color="#B45309" />
                 </View>
                 <Text style={[styles.menuLabel, { color: '#B45309', fontWeight: '700' }]}>
-                  Admin Moderation Panel
+                  Moderation Panel
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#B45309" />
@@ -461,6 +478,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#065F46',
   },
+  bioContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    marginBottom: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  bioText: {
+    fontSize: 13,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  placeholderBioText: {
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+  },
   memberSince: {
     fontSize: 11,
     color: '#9CA3AF',
@@ -533,4 +569,3 @@ const styles = StyleSheet.create({
     color: '#EF4444',
   },
 });
-

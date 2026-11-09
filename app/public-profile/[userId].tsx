@@ -25,13 +25,12 @@ import { Avatar } from '@/components/Avatar';
 import { ListingCard } from '@/components/ListingCard';
 import { useListings } from '@/context/ListingsContext';
 import { useAuth } from '@/context/AuthContext';
-import { supabase, isSupabaseConfigured } from '@/services/supabase';
-import { StorageService } from '@/services/storage';
+import { AuthService } from '@/services/auth';
+import { DatabaseService } from '@/services/database';
 import { openWhatsAppChat } from '@/utils/linking';
+import { formatNu } from '@/utils/splitter';
 import { useDebug } from '@/context/DebugContext';
 import { NotificationBell } from '@/components/NotificationCenter';
-import { AppealFormModal } from '@/components/AppealFormModal';
-import { PropertyListing } from '@/types/listing';
 
 // Lifestyle preference icons mapping
 const PREF_ICONS: Record<string, string> = {
@@ -46,12 +45,11 @@ const PREF_ICONS: Record<string, string> = {
 };
 
 export default function PublicProfileScreen() {
-  const { userId, ownerName, ownerPhone, ownerRole, ownerAvatar } =
+  const { userId, ownerName, ownerPhone, ownerAvatar } =
     useLocalSearchParams<{
       userId: string;
       ownerName?: string;
       ownerPhone?: string;
-      ownerRole?: string;
       ownerAvatar?: string;
     }>();
 
@@ -61,61 +59,65 @@ export default function PublicProfileScreen() {
   const { user } = useAuth();
   const { showDebugBanner } = useDebug();
   const [isContactLoading, setIsContactLoading] = useState(false);
-  const [selectedAppealListing, setSelectedAppealListing] = useState<PropertyListing | null>(null);
 
-  // Live synchronized profile state hooks (Module 1B)
+  // Profile values can come from route data, local storage, or Supabase.
   const [liveAvatar, setLiveAvatar] = useState<string | undefined>(ownerAvatar);
   const [liveBio, setLiveBio] = useState<string>('');
   const [liveName, setLiveName] = useState<string>(ownerName || '');
   const [livePhone, setLivePhone] = useState<string>(ownerPhone || '');
-  const [liveRole, setLiveRole] = useState<string>(ownerRole || '');
+  const [liveRole, setLiveRole] = useState<string>('');
+  const [liveOccupation, setLiveOccupation] = useState('');
+  const [livePreferredZone, setLivePreferredZone] = useState('');
+  const [liveBudget, setLiveBudget] = useState<number | undefined>();
+  const [profileFound, setProfileFound] = useState(false);
+  const [profileUserId, setProfileUserId] = useState<string | undefined>();
 
   // Synchronize live user profile data in real-time from account / database
   useEffect(() => {
     let isMounted = true;
+    setProfileUserId(userId);
+    setLiveAvatar(ownerAvatar);
+    setLiveBio('');
+    setLiveName(ownerName || '');
+    setLivePhone(ownerPhone || '');
+    setLiveRole('');
+    setLiveOccupation('');
+    setLivePreferredZone('');
+    setLiveBudget(undefined);
+    setProfileFound(false);
 
     async function syncUserProfile() {
       console.log('[Dwello-ProfileFeed Debug]: Synchronizing live profile data for:', userId, ownerName);
       try {
-        // 1. Sync from active AuthContext user session if viewing own profile
-        const isSelf = user && (user.id === userId || user.fullName === ownerName || !userId);
+        const isSelf = user && !!userId && user.id === userId;
         if (isSelf && user && isMounted) {
-          if (user.avatarUrl) setLiveAvatar(user.avatarUrl);
-          if (user.bio) setLiveBio(user.bio);
-          if (user.fullName) setLiveName(user.fullName);
-          if (user.phoneNumber) setLivePhone(user.phoneNumber);
-          if (user.role) setLiveRole(user.role);
+          setLiveAvatar(user.avatarUrl || '');
+          setLiveBio(user.bio || '');
+          setLiveName(user.fullName || '');
+          setLivePhone(user.phoneNumber || '');
+          setLiveRole(user.role || '');
+          setLiveOccupation(user.occupation || '');
+          setLivePreferredZone(user.preferredZone || '');
+          setLiveBudget(user.budget);
         }
 
-        // 2. Sync from local persistent disk storage
-        const savedProfile = await StorageService.getSavedUserProfile();
-        if (savedProfile && (savedProfile.id === userId || savedProfile.fullName === ownerName) && isMounted) {
-          if (savedProfile.avatarUrl) setLiveAvatar(savedProfile.avatarUrl);
-          if (savedProfile.bio) setLiveBio(savedProfile.bio);
-          if (savedProfile.fullName) setLiveName(savedProfile.fullName);
-          if (savedProfile.phoneNumber) setLivePhone(savedProfile.phoneNumber);
-          if (savedProfile.role) setLiveRole(savedProfile.role);
-        }
-
-        // 3. Sync from remote Supabase profiles table if online
-        if (isSupabaseConfigured() && userId) {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('avatar_url, bio, full_name, phone_number, role')
-            .eq('id', userId)
-            .maybeSingle();
-
-          if (data && !error && isMounted) {
-            console.log('[Dwello-ProfileFeed Debug]: Supabase profile synced for:', userId);
-            if (data.avatar_url) setLiveAvatar(data.avatar_url);
-            if (data.bio) setLiveBio(data.bio);
-            if (data.full_name) setLiveName(data.full_name);
-            if (data.phone_number) setLivePhone(data.phone_number);
-            if (data.role) setLiveRole(data.role);
-          }
+        if (!userId) return;
+        const profile = await AuthService.fetchPublicProfile(userId);
+        if (!isMounted) return;
+        if (profile) {
+          setProfileFound(true);
+          setLiveAvatar(profile.avatarUrl);
+          setLiveBio(profile.bio);
+          setLiveName(profile.fullName);
+          setLivePhone(profile.phoneNumber);
+          setLiveRole(profile.role);
+          setLiveOccupation(profile.occupation);
+          setLivePreferredZone(profile.preferredZone);
+          setLiveBudget(profile.budget);
+          DatabaseService.updateListingsOwnerProfile(profile);
         }
       } catch (err) {
-        console.warn('[Dwello-ProfileFeed Debug]: Profile sync error:', err);
+        console.error('[Dwello-Profile Error]: Could not load the latest public profile:', err);
       }
     }
 
@@ -124,26 +126,33 @@ export default function PublicProfileScreen() {
     return () => {
       isMounted = false;
     };
-  }, [userId, ownerName, user]);
+  }, [userId, ownerName, ownerAvatar, ownerPhone, user]);
 
-  const displayName = liveName || ownerName || 'Dorji Wangchuk';
-  const displayRole = liveRole || ownerRole || 'Landlord / Host';
-  const displayPhone = livePhone || ownerPhone || '';
-  const displayAvatar = liveAvatar || ownerAvatar;
-  const displayBio =
-    liveBio && liveBio.trim().length > 0
-      ? liveBio.trim()
-      : 'Verified property host on Dwello. Listings are professionally managed and accurately described. Contact via WhatsApp for enquiries.';
+  const profileMatchesRoute = profileUserId === userId;
+  const hasCurrentProfile = profileMatchesRoute && profileFound;
+  const displayName = profileMatchesRoute
+    ? (hasCurrentProfile ? liveName : liveName || ownerName) || 'Dwello member'
+    : 'Loading profile...';
+  const displayRole =
+    (hasCurrentProfile ? liveRole : profileMatchesRoute && user?.id === userId ? liveRole : '') ||
+    'Dwello member';
+  const displayPhone = profileMatchesRoute
+    ? (hasCurrentProfile ? livePhone : livePhone || ownerPhone) || ''
+    : '';
+  const displayAvatar = profileMatchesRoute
+    ? hasCurrentProfile
+      ? liveAvatar
+      : liveAvatar || ownerAvatar
+    : undefined;
+  const displayBio = profileMatchesRoute ? liveBio.trim() : '';
 
   console.log('[Dwello-Navigation Fix]: Loaded full-screen UserProfile page for userId:', userId, 'name:', displayName);
 
   // Collect all active listings from this owner
   const ownerListings = useMemo(() => {
     if (!userId) return [];
-    return allListings.filter(
-      (item) => (item.ownerId === userId || item.ownerName === ownerName || item.ownerName === liveName) && item.status === 'active'
-    );
-  }, [allListings, userId, ownerName, liveName]);
+    return allListings.filter((item) => item.ownerId === userId && item.status === 'active');
+  }, [allListings, userId]);
 
   // Collect all lifestyle preference tags from their listings (for profile display)
   const allPreferences = useMemo(() => {
@@ -182,11 +191,7 @@ export default function PublicProfileScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>User Profile</Text>
-        <NotificationBell
-          onOpenAppeal={(listingId, listingTitle) => {
-            setSelectedAppealListing({ id: listingId, title: listingTitle || 'Property Listing' } as any);
-          }}
-        />
+        <NotificationBell />
       </View>
 
       <ScrollView
@@ -214,6 +219,7 @@ export default function PublicProfileScreen() {
             <Ionicons name="briefcase-outline" size={13} color="#6B7280" />
             <Text style={styles.roleText}>{displayRole}</Text>
           </View>
+          {liveOccupation ? <Text style={styles.roleText}>{liveOccupation}</Text> : null}
 
           {/* Verification Badges */}
           <View style={styles.badgesRow}>
@@ -234,11 +240,11 @@ export default function PublicProfileScreen() {
           </View>
 
           {/* Bio text synced from live account / database */}
-          <View style={styles.bioSection}>
-            <Text style={styles.bioText}>
-              {displayBio}
-            </Text>
-          </View>
+          {displayBio ? (
+            <View style={styles.bioSection}>
+              <Text style={styles.bioText}>{displayBio}</Text>
+            </View>
+          ) : null}
 
           {/* Contact via WhatsApp CTA */}
           {displayPhone ? (
@@ -259,6 +265,26 @@ export default function PublicProfileScreen() {
             </TouchableOpacity>
           ) : null}
         </View>
+
+        {profileMatchesRoute && (livePreferredZone || liveBudget != null) && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Accommodation Preferences</Text>
+            <View style={styles.prefsGrid}>
+              {livePreferredZone ? (
+                <View style={styles.prefChip}>
+                  <Ionicons name="location-outline" size={14} color={DwelloColors.primary} style={{ marginRight: 6 }} />
+                  <Text style={styles.prefChipText}>{livePreferredZone}</Text>
+                </View>
+              ) : null}
+              {liveBudget != null && liveBudget > 0 ? (
+                <View style={styles.prefChip}>
+                  <Ionicons name="wallet-outline" size={14} color={DwelloColors.primary} style={{ marginRight: 6 }} />
+                  <Text style={styles.prefChipText}>Up to {formatNu(liveBudget)} / month</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
 
         {/* Lifestyle Preferences Section */}
         {allPreferences.length > 0 && (
@@ -295,19 +321,6 @@ export default function PublicProfileScreen() {
             ownerListings.map((listing) => (
               <View key={listing.id} style={{ marginBottom: 12 }}>
                 <ListingCard listing={listing} />
-                {listing.is_hidden && (
-                  <TouchableOpacity
-                    style={styles.appealListingBanner}
-                    activeOpacity={0.85}
-                    onPress={() => setSelectedAppealListing(listing)}>
-                    <View style={styles.appealListingBadge}>
-                      <Ionicons name="eye-off" size={13} color="#DC2626" style={{ marginRight: 4 }} />
-                      <Text style={styles.appealListingBadgeText}>Listing Hidden</Text>
-                    </View>
-                    <Text style={styles.appealListingActionText}>Tap to Appeal</Text>
-                    <Ionicons name="chevron-forward" size={14} color="#B91C1C" />
-                  </TouchableOpacity>
-                )}
               </View>
             ))
           )}
@@ -322,16 +335,6 @@ export default function PublicProfileScreen() {
         </View>
       </ScrollView>
 
-      {/* Appeal Request Form Modal */}
-      {selectedAppealListing && (
-        <AppealFormModal
-          visible={!!selectedAppealListing}
-          listingId={selectedAppealListing.id}
-          listingTitle={selectedAppealListing.title}
-          onClose={() => setSelectedAppealListing(null)}
-          onAppealSubmitted={() => setSelectedAppealListing(null)}
-        />
-      )}
     </View>
   );
 }
@@ -545,37 +548,5 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     flex: 1,
     lineHeight: 17,
-  },
-  appealListingBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: -8,
-  },
-  appealListingBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  appealListingBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#DC2626',
-  },
-  appealListingActionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#B91C1C',
-    flex: 1,
-    marginLeft: 8,
   },
 });

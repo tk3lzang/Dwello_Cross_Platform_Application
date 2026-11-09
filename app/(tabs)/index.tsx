@@ -1,11 +1,8 @@
 /**
- * Explore & Discovery Marketplace (Properties Feed)
- * Section 2 of Dwello App Manual.
- * Dual display modes (List vs Interactive Map), active search with rich fallbacks,
- * instant reactive storage resilience, and quick municipal zone filters.
+ * Property discovery with search, filters, and list or map views.
  */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,8 +12,10 @@ import {
   FlatList,
   ScrollView,
   Platform,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { ListingCard } from '@/components/ListingCard';
@@ -43,9 +42,7 @@ export default function ExploreScreen() {
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
   const [selectedQuickZone, setSelectedQuickZone] = useState<string>('');
-  // Separate search input state from debounced query applied to filter
   const [searchInput, setSearchInput] = useState('');
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [filters, setFilters] = useState<ListingFilterState>({
     category: 'Full Flat',
@@ -63,6 +60,28 @@ export default function ExploreScreen() {
   const filteredListings = useMemo(() => {
     return filterListings(filters);
   }, [filterListings, filters]);
+  const mapListings = useMemo(
+    () => filterListings({ ...filters, searchQuery: '' }),
+    [filterListings, filters]
+  );
+
+  // Root Screen Back Handler: Prevents popping back to authentication screens
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (searchInput.trim().length > 0) {
+          setSearchInput('');
+          setFilters((prev) => ({ ...prev, searchQuery: '' }));
+          return true;
+        }
+        BackHandler.exitApp();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }, [searchInput])
+  );
 
   const handleQuickZonePress = (zone: string) => {
     const nextZone = selectedQuickZone === zone ? '' : zone;
@@ -75,16 +94,13 @@ export default function ExploreScreen() {
     setSearchInput(text);
     // Clear zone filters when user types a custom search
     setSelectedQuickZone('');
-    // Debounce the actual filter update to prevent excessive re-renders during typing
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => {
-      setFilters((prev) => ({ ...prev, searchQuery: text, zoneArea: '' }));
-    }, 280);
+    setFilters((prev) => ({ ...prev, searchQuery: text, zoneArea: '' }));
   };
 
   const clearSearch = () => {
     setSearchInput('');
-    setFilters((prev) => ({ ...prev, searchQuery: '' }));
+    setSelectedQuickZone('');
+    setFilters((prev) => ({ ...prev, searchQuery: '', zoneArea: '' }));
   };
 
   // Compute whether any non-default filters are active (for filter active indicator)
@@ -92,7 +108,6 @@ export default function ExploreScreen() {
     return (
       filters.bhkType !== 'Any' ||
       filters.amenities.length > 0 ||
-      filters.roommatePreferences.length > 0 ||
       (filters.maxRent > 0 && filters.maxRent < 100000) ||
       (filters.municipalRegion !== undefined && filters.municipalRegion.trim().length > 0) ||
       filters.sortBy !== 'Newest'
@@ -101,7 +116,8 @@ export default function ExploreScreen() {
 
   const handleApplySuggestion = (suggestion: string) => {
     setSearchInput(suggestion);
-    setFilters((prev) => ({ ...prev, searchQuery: suggestion }));
+    setSelectedQuickZone('');
+    setFilters((prev) => ({ ...prev, searchQuery: suggestion, zoneArea: '' }));
   };
 
   const resetAllFilters = () => {
@@ -210,7 +226,7 @@ export default function ExploreScreen() {
       <View style={styles.body}>
         {viewMode === 'map' ? (
           <PropertyMap
-            listings={filteredListings}
+            listings={mapListings}
             searchLocation={searchInput || filters.searchQuery || selectedQuickZone}
           />
         ) : (
@@ -292,8 +308,14 @@ export default function ExploreScreen() {
         visible={isFilterModalOpen}
         onClose={() => setIsFilterModalOpen(false)}
         filters={filters}
-        onApplyFilters={(updated) => setFilters(updated)}
-        totalResultsCount={filteredListings.length}
+        onApplyFilters={(updated) => {
+          setFilters(updated);
+          setSearchInput(updated.searchQuery);
+          setSelectedQuickZone(
+            QUICK_ZONE_CHIPS.includes(updated.zoneArea || '') ? updated.zoneArea || '' : ''
+          );
+        }}
+        getResultsCount={(updated) => filterListings(updated).length}
       />
     </View>
   );

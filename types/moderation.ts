@@ -8,14 +8,17 @@ export type ReportStatus =
   | 'dismissed'
   | 'action_taken'
   | 'under_appeal'
-  | 'appeal_approved';
+  | 'appeal_approved'
+  | 'appeal_rejected';
 
 export type AppealStatus = 'pending' | 'approved' | 'rejected';
 
 export type NotificationType =
   | 'report_received'
   | 'listing_flagged'
-  | 'appeal_status';
+  | 'listing_removed'
+  | 'appeal_status'
+  | 'appeal_approved';
 
 export interface ModerationReport {
   id: string;
@@ -25,6 +28,8 @@ export interface ModerationReport {
   reporter_email?: string;
   reason: string;
   details?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
   status: ReportStatus;
   created_at: string;
 }
@@ -40,8 +45,19 @@ export interface ModerationAppeal {
   appeal_reason: string;
   proof_image_url?: string;
   admin_notes?: string;
+  moderation_action_id?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
   status: AppealStatus;
   created_at: string;
+}
+
+export interface AppealEligibility {
+  report_id: string;
+  listing_id: string;
+  listing_title: string;
+  moderation_action_id: string;
+  eligible: true;
 }
 
 export interface ModerationNotification {
@@ -53,5 +69,8 @@ export interface ModerationNotification {
   read: boolean;
   target_id?: string;
   action_url?: string;
+  report_id?: string;
+  appeal_id?: string;
+  moderation_action_id?: string;
   created_at: string;
 }

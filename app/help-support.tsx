@@ -1,7 +1,5 @@
 /**
- * Support & Customer Assistance Screen
- * Section 10 / Page 19 of Dwello App Manual.
- * Provides direct WhatsApp, phone dialer, and email channels for reporting issues and customer care.
+ * Support contact options for WhatsApp, phone, and email.
  */
 
 import React from 'react';

@@ -1,0 +1,63 @@
+export interface BhutanLocation {
+  id: string;
+  name: string;
+  dzongkhag: string;
+  latitude: number;
+  longitude: number;
+  kind: 'locality' | 'district';
+}
+
+export const BHUTAN_LOCATION_CENTROIDS: BhutanLocation[] = [
+  { id: 'thimphu', name: 'Thimphu', dzongkhag: 'Thimphu', latitude: 27.4728, longitude: 89.6393, kind: 'district' },
+  { id: 'phuentsholing', name: 'Phuentsholing', dzongkhag: 'Chhukha', latitude: 26.864, longitude: 89.3884, kind: 'district' },
+  { id: 'paro', name: 'Paro', dzongkhag: 'Paro', latitude: 27.4305, longitude: 89.4127, kind: 'district' },
+  { id: 'punakha', name: 'Punakha', dzongkhag: 'Punakha', latitude: 27.581, longitude: 89.863, kind: 'district' },
+  { id: 'bumthang', name: 'Jakar', dzongkhag: 'Bumthang', latitude: 27.5496, longitude: 90.7525, kind: 'district' },
+  { id: 'chhukha', name: 'Chhukha', dzongkhag: 'Chhukha', latitude: 27.078, longitude: 89.536, kind: 'district' },
+  { id: 'dagana', name: 'Dagana', dzongkhag: 'Dagana', latitude: 27.075, longitude: 89.876, kind: 'district' },
+  { id: 'gasa', name: 'Gasa', dzongkhag: 'Gasa', latitude: 27.9, longitude: 89.727, kind: 'district' },
+  { id: 'haa', name: 'Haa', dzongkhag: 'Haa', latitude: 27.369, longitude: 89.292, kind: 'district' },
+  { id: 'lhuentse', name: 'Lhuentse', dzongkhag: 'Lhuentse', latitude: 27.667, longitude: 91.183, kind: 'district' },
+  { id: 'mongar', name: 'Mongar', dzongkhag: 'Mongar', latitude: 27.275, longitude: 91.239, kind: 'district' },
+  { id: 'pemagatshel', name: 'Pemagatshel', dzongkhag: 'Pemagatshel', latitude: 27.037, longitude: 91.403, kind: 'district' },
+  { id: 'samdrup-jongkhar', name: 'Samdrup Jongkhar', dzongkhag: 'Samdrup Jongkhar', latitude: 26.801, longitude: 91.505, kind: 'district' },
+  { id: 'samtse', name: 'Samtse', dzongkhag: 'Samtse', latitude: 26.899, longitude: 89.099, kind: 'district' },
+  { id: 'sarpang', name: 'Sarpang', dzongkhag: 'Sarpang', latitude: 26.863, longitude: 90.267, kind: 'district' },
+  { id: 'trashigang', name: 'Trashigang', dzongkhag: 'Trashigang', latitude: 27.333, longitude: 91.554, kind: 'district' },
+  { id: 'trashiyangtse', name: 'Trashiyangtse', dzongkhag: 'Trashiyangtse', latitude: 27.611, longitude: 91.499, kind: 'district' },
+  { id: 'trongsa', name: 'Trongsa', dzongkhag: 'Trongsa', latitude: 27.503, longitude: 90.507, kind: 'district' },
+  { id: 'tsirang', name: 'Damphu', dzongkhag: 'Tsirang', latitude: 27.022, longitude: 90.124, kind: 'district' },
+  { id: 'wangdue-phodrang', name: 'Wangdue Phodrang', dzongkhag: 'Wangdue Phodrang', latitude: 27.487, longitude: 89.899, kind: 'district' },
+  { id: 'zhemgang', name: 'Zhemgang', dzongkhag: 'Zhemgang', latitude: 27.214, longitude: 90.657, kind: 'district' },
+  { id: 'motithang', name: 'Motithang', dzongkhag: 'Thimphu', latitude: 27.4725, longitude: 89.6258, kind: 'locality' },
+  { id: 'changzamtog', name: 'Changzamtog', dzongkhag: 'Thimphu', latitude: 27.4642, longitude: 89.6432, kind: 'locality' },
+  { id: 'babesa', name: 'Babesa', dzongkhag: 'Thimphu', latitude: 27.4285, longitude: 89.6582, kind: 'locality' },
+  { id: 'olakha', name: 'Olakha', dzongkhag: 'Thimphu', latitude: 27.4528, longitude: 89.651, kind: 'locality' },
+  { id: 'norzin-lam', name: 'Norzin Lam', dzongkhag: 'Thimphu', latitude: 27.4715, longitude: 89.6385, kind: 'locality' },
+  { id: 'clock-tower', name: 'Clock Tower', dzongkhag: 'Thimphu', latitude: 27.4718, longitude: 89.6395, kind: 'locality' },
+  { id: 'chubachu', name: 'Chubachu', dzongkhag: 'Thimphu', latitude: 27.476, longitude: 89.635, kind: 'locality' },
+  { id: 'kawajangsa', name: 'Kawajangsa', dzongkhag: 'Thimphu', latitude: 27.4815, longitude: 89.6308, kind: 'locality' },
+  { id: 'langjophakha', name: 'Langjophakha', dzongkhag: 'Thimphu', latitude: 27.484, longitude: 89.643, kind: 'locality' },
+  { id: 'zilukha', name: 'Zilukha', dzongkhag: 'Thimphu', latitude: 27.486, longitude: 89.634, kind: 'locality' },
+  { id: 'hejo', name: 'Hejo', dzongkhag: 'Thimphu', latitude: 27.491, longitude: 89.638, kind: 'locality' },
+  { id: 'jungshina', name: 'Jungshina', dzongkhag: 'Thimphu', latitude: 27.498, longitude: 89.635, kind: 'locality' },
+  { id: 'taba', name: 'Taba', dzongkhag: 'Thimphu', latitude: 27.5085, longitude: 89.638, kind: 'locality' },
+  { id: 'dechencholing', name: 'Dechencholing', dzongkhag: 'Thimphu', latitude: 27.5255, longitude: 89.6412, kind: 'locality' },
+  { id: 'lungtenphu', name: 'Lungtenphu', dzongkhag: 'Thimphu', latitude: 27.441, longitude: 89.6625, kind: 'locality' },
+  { id: 'semtokha', name: 'Semtokha', dzongkhag: 'Thimphu', latitude: 27.442, longitude: 89.674, kind: 'locality' },
+  { id: 'rinchending', name: 'Rinchending (CST)', dzongkhag: 'Chhukha', latitude: 26.8524, longitude: 89.3942, kind: 'locality' },
+  { id: 'kabreytar', name: 'Kabreytar', dzongkhag: 'Chhukha', latitude: 26.8612, longitude: 89.3856, kind: 'locality' },
+  { id: 'core-town', name: 'Core Town', dzongkhag: 'Chhukha', latitude: 26.864, longitude: 89.3884, kind: 'locality' },
+  { id: 'pasakha', name: 'Pasakha', dzongkhag: 'Chhukha', latitude: 26.842, longitude: 89.445, kind: 'locality' },
+  { id: 'alay', name: 'Alay', dzongkhag: 'Chhukha', latitude: 26.858, longitude: 89.392, kind: 'locality' },
+  { id: 'pling-lower', name: 'Pling Lower', dzongkhag: 'Chhukha', latitude: 26.861, longitude: 89.382, kind: 'locality' },
+  { id: 'dhamdara', name: 'Dhamdara', dzongkhag: 'Chhukha', latitude: 26.871, longitude: 89.389, kind: 'locality' },
+  { id: 'tshongdue', name: 'Tshongdue', dzongkhag: 'Paro', latitude: 27.4285, longitude: 89.418, kind: 'locality' },
+  { id: 'paro-town', name: 'Paro Town', dzongkhag: 'Paro', latitude: 27.4305, longitude: 89.4127, kind: 'locality' },
+  { id: 'bongdey', name: 'Bongdey', dzongkhag: 'Paro', latitude: 27.3912, longitude: 89.4452, kind: 'locality' },
+  { id: 'shaba', name: 'Shaba', dzongkhag: 'Paro', latitude: 27.378, longitude: 89.472, kind: 'locality' },
+  { id: 'nemeyzampa', name: 'Nemeyzampa', dzongkhag: 'Paro', latitude: 27.412, longitude: 89.429, kind: 'locality' },
+  { id: 'khuruthang', name: 'Khuruthang', dzongkhag: 'Punakha', latitude: 27.548, longitude: 89.865, kind: 'locality' },
+  { id: 'punakha-dzong-area', name: 'Punakha Dzong Area', dzongkhag: 'Punakha', latitude: 27.581, longitude: 89.863, kind: 'locality' },
+  { id: 'lobesa', name: 'Lobesa', dzongkhag: 'Punakha', latitude: 27.502, longitude: 89.878, kind: 'locality' },
+];

@@ -6,7 +6,7 @@ export type ListingCategory = 'Full Flat' | 'Shared Room';
 
 export type BHKType = '1BHK' | '2BHK' | '3BHK' | 'Studio' | 'Single Room' | 'Shared Room';
 
-export type MunicipalRegion = 'Thimphu' | 'Phuentsholing' | 'Paro' | 'Punakha' | 'Other';
+export type MunicipalRegion = string;
 
 export type ListingStatus = 'active' | 'rented' | 'archived';
 
@@ -29,12 +29,14 @@ export interface PropertyListing {
   leasePeriod?: string;
   ownerId: string;
   ownerName: string;
+  contactName?: string;
   ownerPhone: string; // 8 digits starting with 17 or 77
   ownerRole?: 'Landlord / Host' | 'Primary Tenant' | 'Student' | 'Roommate';
   ownerAvatar?: string;
   status: ListingStatus;
   fairMarketPrice?: boolean;
   is_hidden?: boolean;
+  is_archived?: boolean;
   createdAt: string;
   updatedAt: string;
   reportCount?: number;
@@ -43,6 +45,11 @@ export interface PropertyListing {
   appealSubmitted?: boolean;
   appealNotes?: string;
 }
+
+export type NewPropertyListing = Omit<
+  PropertyListing,
+  'id' | 'createdAt' | 'updatedAt' | 'status' | 'ownerId' | 'ownerName' | 'ownerAvatar'
+>;
 
 export interface ListingFilterState {
   category?: ListingCategory | 'All';
@@ -79,4 +86,3 @@ export interface ReportListingPayload {
   appealNotes?: string;
   appealStatus?: 'none' | 'pending' | 'accepted' | 'rejected';
 }
-

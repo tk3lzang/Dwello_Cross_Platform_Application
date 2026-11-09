@@ -1,8 +1,5 @@
 /**
- * Saved Wishlist Manager
- * Section 8 of Dwello App Manual.
- * Offline-resilient wishlist storing prospective rental properties to device memory.
- * Reactively syncs with real-time state.
+ * Saved listings backed by the local wishlist.
  */
 
 import React, { useMemo } from 'react';
@@ -34,7 +31,7 @@ export default function SavedScreen() {
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Header (Manual Page 16) */}
+      {/* Wishlist header. */}
       <View style={styles.header}>
         <Text style={styles.title}>Wishlist</Text>
         <Text style={styles.subtitle}>Saved on this device — available offline</Text>
@@ -51,7 +48,7 @@ export default function SavedScreen() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="heart-outline" size={54} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>Your Wishlist is Empty</Text>
+              <Text style={styles.emptyTitle}>No saved listings yet</Text>
               <Text style={styles.emptySubtitle}>
                 Tap the heart icon on any flat or shared room card to save it for offline reference.
               </Text>

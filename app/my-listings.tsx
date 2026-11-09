@@ -1,11 +1,8 @@
 /**
- * My Listings & Advertiser Dashboard Controls
- * Section 6 & 7 of Dwello App Manual.
- * Manage active and archived listings, update tenancy status to Rented, repost, and delete.
- * Real-time reactive updates without requiring manual pull-to-refresh.
+ * Advertiser dashboard for active and archived listings.
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,10 +12,9 @@ import {
   Modal,
   Platform,
   Animated,
-  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { ListingCard } from '@/components/ListingCard';
@@ -26,9 +22,7 @@ import { PropertyListing } from '@/types/listing';
 import { useAuth } from '@/context/AuthContext';
 import { useListings } from '@/context/ListingsContext';
 import { useDebug } from '@/context/DebugContext';
-import { DatabaseService } from '@/services/database';
 import { DebugBanner } from '@/components/DebugBanner';
-import { AppealFormModal } from '@/components/AppealFormModal';
 
 export default function MyListingsScreen() {
   const insets = useSafeAreaInsets();
@@ -36,7 +30,6 @@ export default function MyListingsScreen() {
   const { user } = useAuth();
   const { allListings, markAsRented, repostListing, deleteListing } = useListings();
   const { showDebugBanner } = useDebug();
-  const params = useLocalSearchParams<{ appealListingId?: string }>();
 
   const [currentTab, setCurrentTab] = useState<'active' | 'archived'>('active');
 
@@ -45,57 +38,20 @@ export default function MyListingsScreen() {
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [isConfirmRentedModalOpen, setIsConfirmRentedModalOpen] = useState(false);
   const [isConfirmDeleteModalOpen, setIsConfirmDeleteModalOpen] = useState(false);
-  const [isAppealModalOpen, setIsAppealModalOpen] = useState(false);
-  const [appealNotes, setAppealNotes] = useState('');
-  const [appealListingTarget, setAppealListingTarget] = useState<PropertyListing | null>(null);
-  const [selectedAppealListing, setSelectedAppealListing] = useState<PropertyListing | null>(null);
-
-  // Deep-link direct launch of Appeal Form Modal from background push notifications
-  useEffect(() => {
-    if (params.appealListingId && allListings.length > 0) {
-      const match = allListings.find((item) => item.id === params.appealListingId);
-      if (match) {
-        setSelectedAppealListing(match);
-      } else {
-        // Fallback target with matching listing ID
-        setSelectedAppealListing({
-          id: params.appealListingId,
-          title: 'Reported Property Listing',
-          category: 'Full Flat',
-          price: 13500,
-          bhkType: '2BHK',
-          municipalRegion: 'Thimphu',
-          zoneArea: 'Norzin Lam',
-          fullAddress: 'Norzin Lam, Thimphu',
-          latitude: 27.4712,
-          longitude: 89.6339,
-          images: [],
-          amenities: [],
-          description: 'Dwello rental property',
-          status: 'active',
-          ownerId: user?.id || 'owner-tandin',
-          ownerName: 'Tandin Kelzang',
-          ownerPhone: '17123456',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          is_hidden: true,
-          appealWindowOpen: true,
-        });
-      }
-    }
-  }, [params.appealListingId, allListings, user?.id]);
-
   // Animated translateY for the bottom sheet card to slide up independently of the static backdrop
   const sheetTranslateY = useRef(new Animated.Value(320)).current;
 
-  // Derive active and archived listings reactively from allListings
+  // Derive active and archived listings reactively from allListings strictly scoped to current user
   const { activeListings, archivedListings } = useMemo(() => {
-    const ownerId = user?.id || 'owner-tandin';
-    const userItems = allListings.filter(
-      (item) => item.ownerId === ownerId || item.ownerId === 'owner-tandin'
+    const ownerId = user?.id;
+    if (!ownerId) {
+      return { activeListings: [], archivedListings: [] };
+    }
+    const userItems = allListings.filter((item) => item.ownerId === ownerId);
+    const active = userItems.filter((item) => item.status === 'active' && !item.is_archived);
+    const archived = userItems.filter(
+      (item) => item.status === 'rented' || item.status === 'archived' || item.is_archived
     );
-    const active = userItems.filter((item) => item.status === 'active');
-    const archived = userItems.filter((item) => item.status === 'rented' || item.status === 'archived');
     return { activeListings: active, archivedListings: archived };
   }, [allListings, user?.id]);
 
@@ -120,33 +76,6 @@ export default function MyListingsScreen() {
       setIsManageModalOpen(false);
       callback?.();
     });
-  };
-
-  const handleOpenAppeal = (listing: PropertyListing) => {
-    setAppealListingTarget(listing);
-    setAppealNotes('');
-    setIsAppealModalOpen(true);
-  };
-
-  const handleSubmitAppeal = async () => {
-    if (!appealListingTarget) return;
-    if (!appealNotes.trim()) {
-      showDebugBanner('warning', 'Appeal Details Required', 'Please provide explanation or counter-evidence.');
-      return;
-    }
-    console.log('[Dwello-Moderation Debug]: Submitting owner counter-evidence for:', appealListingTarget.id);
-    try {
-      await DatabaseService.submitAppeal(appealListingTarget.id, appealNotes.trim());
-      setIsAppealModalOpen(false);
-      setAppealListingTarget(null);
-      showDebugBanner(
-        'success',
-        'Appeal Submitted',
-        'Your counter-evidence has been received. Our moderation team will review it.'
-      );
-    } catch (e: any) {
-      showDebugBanner('error', 'Appeal Failed', e.message);
-    }
   };
 
   const handlePromptMarkAsRented = () => {
@@ -267,13 +196,9 @@ export default function MyListingsScreen() {
                       Hidden from marketplace due to reports
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.appealActionBtn}
-                    activeOpacity={0.85}
-                    onPress={() => setSelectedAppealListing(item)}>
-                    <Ionicons name="shield-half" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
-                    <Text style={styles.appealActionBtnText}>Apply for Appeal</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.hiddenModerationText}>
+                    Open the moderation notification to review the outcome or appeal.
+                  </Text>
                 </View>
               )}
             </View>
@@ -300,7 +225,7 @@ export default function MyListingsScreen() {
         />
       </View>
 
-      {/* Action / Management Bottom Sheet (Manual Page 13 & 15) */}
+      {/* Listing management actions. */}
       <Modal
         visible={isManageModalOpen}
         transparent
@@ -328,37 +253,6 @@ export default function MyListingsScreen() {
             {selectedListing?.status === 'active' ? (
               // Active Sheet Options
               <View style={styles.sheetActions}>
-                {selectedListing?.is_hidden && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      const target = selectedListing;
-                      closeManageModal(() => {
-                        if (target) setSelectedAppealListing(target);
-                      });
-                    }}
-                    style={[styles.actionRow, { backgroundColor: '#FEF2F2' }]}>
-                    <Ionicons name="shield-half" size={20} color="#DC2626" style={styles.actionIcon} />
-                    <Text style={[styles.actionRowText, { color: '#DC2626', fontWeight: '700' }]}>
-                      Apply for Appeal (Listing Hidden)
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {selectedListing?.appealWindowOpen && !selectedListing?.is_hidden && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      closeManageModal(() => {
-                        if (selectedListing) handleOpenAppeal(selectedListing);
-                      });
-                    }}
-                    style={[styles.actionRow, { backgroundColor: '#FEF2F2' }]}>
-                    <Ionicons name="shield-checkmark-outline" size={20} color="#DC2626" style={styles.actionIcon} />
-                    <Text style={[styles.actionRowText, { color: '#DC2626', fontWeight: '700' }]}>
-                      Submit Appeal / Counter-Evidence
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
                 <TouchableOpacity
                   onPress={() => {
                     closeManageModal(() => {
@@ -490,63 +384,6 @@ export default function MyListingsScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Appeal & Counter-Evidence Submission Modal */}
-      <Modal
-        visible={isAppealModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsAppealModalOpen(false)}>
-        <View pointerEvents="box-none" style={styles.modalToastContainer}>
-          <DebugBanner insideModal />
-        </View>
-        <TouchableOpacity
-          style={styles.confirmModalOverlay}
-          activeOpacity={1}
-          onPress={() => setIsAppealModalOpen(false)}>
-          <View style={[styles.confirmModalCard, { maxWidth: 400 }]} onStartShouldSetResponder={() => true}>
-            <View style={[styles.confirmIconContainer, { backgroundColor: '#FEF3C7' }]}>
-              <Ionicons name="shield-checkmark" size={32} color="#D97706" />
-            </View>
-            <Text style={styles.confirmModalTitle}>Submit Listing Appeal</Text>
-            <Text style={styles.confirmModalDescription}>
-              Provide explanation, lease documentation, or counter-evidence to verify your listing and restore public visibility.
-            </Text>
-            <TextInput
-              style={styles.appealInput}
-              placeholder="State why this listing is accurate and compliant with Dwello community standards..."
-              placeholderTextColor="#9CA3AF"
-              value={appealNotes}
-              onChangeText={setAppealNotes}
-              multiline
-              numberOfLines={4}
-            />
-            <View style={styles.confirmButtonsRow}>
-              <TouchableOpacity
-                onPress={() => setIsAppealModalOpen(false)}
-                style={styles.confirmCancelBtn}>
-                <Text style={styles.confirmCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleSubmitAppeal}
-                activeOpacity={0.88}
-                style={[styles.confirmActionBtn, { backgroundColor: DwelloColors.primary }]}>
-                <Text style={styles.confirmActionText}>Submit Appeal</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Host Appeal Modal (Directive Module 3 & 4) */}
-      {selectedAppealListing && (
-        <AppealFormModal
-          visible={!!selectedAppealListing}
-          listingId={selectedAppealListing.id}
-          listingTitle={selectedAppealListing.title}
-          onClose={() => setSelectedAppealListing(null)}
-          onAppealSubmitted={() => setSelectedAppealListing(null)}
-        />
-      )}
     </View>
   );
 }
@@ -847,19 +684,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  appealInput: {
-    width: '100%',
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 13,
-    color: '#111827',
-    textAlignVertical: 'top',
-    marginBottom: 16,
-    minHeight: 80,
-  },
   modalToastContainer: {
     position: 'absolute',
     top: 50,
@@ -908,18 +732,5 @@ const styles = StyleSheet.create({
   hiddenModerationText: {
     fontSize: 11,
     color: '#7F1D1D',
-  },
-  appealActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  appealActionBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
   },
 });

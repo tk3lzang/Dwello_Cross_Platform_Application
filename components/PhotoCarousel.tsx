@@ -1,7 +1,5 @@
 /**
- * PhotoCarousel Component
- * Swipeable property photo gallery with index pagination indicator (e.g., 1/4)
- * Matching section 4.1 of the Dwello App Manual.
+ * Swipeable property photo gallery with an image index indicator.
  */
 
 import React, { useState } from 'react';
@@ -91,4 +89,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-

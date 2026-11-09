@@ -1,7 +1,5 @@
 /**
- * Roommate & Flat Sharing Finder Feed
- * Section 3 of Dwello App Manual.
- * Reactive flatmate discovery with lifestyle preferences, instant search fallbacks, and map view.
+ * Shared-room discovery with lifestyle filters and list or map views.
  */
 
 import React, { useState, useMemo } from 'react';
@@ -51,6 +49,10 @@ export default function RoommatesScreen() {
   const filteredListings = useMemo(() => {
     return filterListings(filters);
   }, [filterListings, filters]);
+  const mapListings = useMemo(
+    () => filterListings({ ...filters, searchQuery: '' }),
+    [filterListings, filters]
+  );
 
   const handleLifestyleTagPress = (tag: string) => {
     const nextTag = selectedLifestyleTag === tag ? '' : tag;
@@ -151,7 +153,7 @@ export default function RoommatesScreen() {
       {/* Main Body */}
       <View style={styles.body}>
         {viewMode === 'map' ? (
-          <PropertyMap listings={filteredListings} />
+          <PropertyMap listings={mapListings} searchLocation={filters.searchQuery} />
         ) : (
           <FlatList
             data={filteredListings}
@@ -228,8 +230,12 @@ export default function RoommatesScreen() {
         visible={isFilterModalOpen}
         onClose={() => setIsFilterModalOpen(false)}
         filters={filters}
-        onApplyFilters={(updated) => setFilters(updated)}
-        totalResultsCount={filteredListings.length}
+        onApplyFilters={(updated) => {
+          setFilters(updated);
+          setSelectedLifestyleTag(updated.roommatePreferences[0] || '');
+        }}
+        getResultsCount={(updated) => filterListings(updated).length}
+        showRoommatePreferences
       />
     </View>
   );

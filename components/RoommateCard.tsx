@@ -1,8 +1,5 @@
 /**
- * RoommateCard Component
- * Specialized seeker / flatmate card matching Section 3 of the Dwello App Manual.
- * Includes: ROOM AVAILABLE badge, price tag, heart wishlist, lifestyle tags,
- * and a native share button (circular lavender pill at bottom-right of card body).
+ * Shared-room listing card with lifestyle tags and native sharing.
  */
 
 import React from 'react';
@@ -11,6 +8,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
 import { PropertyListing } from '@/types/listing';
+import { Avatar } from '@/components/Avatar';
 import { useWishlist } from '@/context/WishlistContext';
 import { formatNu } from '@/utils/splitter';
 import { shareListingNative } from '@/utils/linking';
@@ -144,6 +142,7 @@ export function RoommateCard({ listing }: RoommateCardProps) {
           activeOpacity={0.75}
           onPress={(e) => {
             e.stopPropagation?.();
+            if (!listing.ownerId) return;
             console.log('[Dwello-Navigation Fix]: Navigating from roommate card host avatar to full-screen profile:', listing.ownerName);
             router.push({
               pathname: '/public-profile/[userId]' as any,
@@ -157,11 +156,9 @@ export function RoommateCard({ listing }: RoommateCardProps) {
             });
           }}
           style={styles.hostRow}
-          accessibilityLabel={`View ${listing.ownerName}'s profile`}>
-          <View style={styles.hostAvatarCircle}>
-            <Ionicons name="person-circle-outline" size={20} color="#6B7280" />
-          </View>
-          <Text style={styles.hostName}>{listing.ownerName}</Text>
+          accessibilityLabel={`View ${listing.ownerName || 'Dwello member'}'s profile`}>
+          <Avatar uri={listing.ownerAvatar} name={listing.ownerName} size={24} />
+          <Text style={styles.hostName}>{listing.ownerName || 'Dwello member'}</Text>
           <Ionicons name="chevron-forward" size={13} color="#9CA3AF" />
         </TouchableOpacity>
       </View>
@@ -360,14 +357,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
     gap: 6,
-  },
-  hostAvatarCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   hostName: {
     fontSize: 12,

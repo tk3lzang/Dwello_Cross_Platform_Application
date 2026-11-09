@@ -1,8 +1,5 @@
 /**
- * Account Sign Up Screen
- * Section 1 of Dwello App Manual & UI Snapshot Fidelity.
- * Full Name, WhatsApp Phone Number (with Bhutan regex validation),
- * Email, and Password with visibility toggle.
+ * Account registration with Bhutanese phone-number validation.
  */
 
 import React, { useState } from 'react';
@@ -23,6 +20,7 @@ import { DwelloColors } from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { useDebug } from '@/context/DebugContext';
 import { validateBhutanPhone } from '@/utils/validation';
+import { supabase } from '@/lib/supabase';
 
 export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
@@ -38,7 +36,7 @@ export default function SignUpScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSignUp = async () => {
-    console.log('[Dwello-Auth Debug]: Form submit: Sign Up with:', { fullName, phoneNumber, email });
+    console.log('[Dwello-Auth Debug]: Form submit: Sign Up.');
 
     if (!fullName.trim()) {
       showDebugBanner('error', 'Validation Error', 'Please enter your full name.');
@@ -67,9 +65,19 @@ export default function SignUpScreen() {
     setIsLoading(true);
     try {
       await signUp(fullName.trim(), phoneNumber.trim(), email.trim(), password, 'Tenant');
-      router.replace('/(tabs)');
-    } catch (err: any) {
-      console.error('[Dwello-Error Catch]: Sign up form error:', err);
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData?.session) {
+        router.replace('/(tabs)');
+      } else {
+        showDebugBanner(
+          'info',
+          'Account Created',
+          'Registration complete! Please check your email to confirm your account, then log in.'
+        );
+        router.replace('/auth/login');
+      }
+    } catch {
+      // AuthContext already displays authentication failures through the toast.
     } finally {
       setIsLoading(false);
     }
@@ -101,7 +109,9 @@ export default function SignUpScreen() {
             placeholder="Full Name"
             placeholderTextColor="#9CA3AF"
             value={fullName}
-            onChangeText={setFullName}
+            onChangeText={(value) => {
+              setFullName(value);
+            }}
           />
         </View>
 
@@ -113,7 +123,9 @@ export default function SignUpScreen() {
             placeholderTextColor="#9CA3AF"
             keyboardType="phone-pad"
             value={phoneNumber}
-            onChangeText={setPhoneNumber}
+            onChangeText={(value) => {
+              setPhoneNumber(value);
+            }}
           />
           <Text style={styles.subLabel}>
             Use an 8-digit Bhutanese number (starts with 17 or 77).
@@ -129,7 +141,9 @@ export default function SignUpScreen() {
             autoCapitalize="none"
             keyboardType="email-address"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(value) => {
+              setEmail(value);
+            }}
           />
         </View>
 
@@ -141,7 +155,9 @@ export default function SignUpScreen() {
             placeholderTextColor="#9CA3AF"
             secureTextEntry={!showPassword}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(value) => {
+              setPassword(value);
+            }}
           />
           <TouchableOpacity
             onPress={() => setShowPassword(!showPassword)}

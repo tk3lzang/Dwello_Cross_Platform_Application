@@ -7,12 +7,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { PropertyListing, ReportListingPayload } from '@/types/listing';
+import { PropertyListing } from '@/types/listing';
+import { listingFromDatabase, listingToDatabase } from './listingMapper';
 
 export type OfflineActionType =
   | 'TOGGLE_FAVORITE'
   | 'CREATE_LISTING'
   | 'UPDATE_LISTING_STATUS'
+  | 'UPDATE_LISTING'
   | 'DELETE_LISTING'
   | 'SUBMIT_REPORT';
 
@@ -164,7 +166,8 @@ export const OfflineSyncService = {
           console.log(`[Dwello-OfflineSync Debug]: Syncing item ${action.id} (${action.type})...`);
           switch (action.type) {
             case 'CREATE_LISTING': {
-              const { error } = await supabase.from('listings').insert([action.payload]);
+              const listing = listingFromDatabase(action.payload as Record<string, unknown>);
+              const { error } = await supabase.from('listings').insert([listingToDatabase(listing)]);
               if (error) throw error;
               break;
             }
@@ -177,6 +180,15 @@ export const OfflineSyncService = {
               if (error) throw error;
               break;
             }
+            case 'UPDATE_LISTING': {
+              const { id, updates } = action.payload;
+              const { error } = await supabase
+                .from('listings')
+                .update({ ...updates, updated_at: new Date().toISOString() })
+                .eq('id', id);
+              if (error) throw error;
+              break;
+            }
             case 'DELETE_LISTING': {
               const { id } = action.payload;
               const { error } = await supabase.from('listings').delete().eq('id', id);
@@ -184,8 +196,9 @@ export const OfflineSyncService = {
               break;
             }
             case 'SUBMIT_REPORT': {
-              const { error } = await supabase.from('reports').insert([action.payload]);
-              if (error) throw error;
+              console.warn(
+                `[Dwello-OfflineSync Warning]: Discarding obsolete report queue item ${action.id}; reports must be resubmitted while signed in so the authenticated RPC can assign the reporter.`
+              );
               break;
             }
             case 'TOGGLE_FAVORITE': {

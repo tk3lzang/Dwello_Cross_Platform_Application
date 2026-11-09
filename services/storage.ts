@@ -18,12 +18,13 @@ const KEYS = {
 
 export const StorageService = {
   /**
-   * Retrieves array of saved wishlist listing IDs
+   * Retrieves array of saved wishlist listing IDs scoped per user
    */
-  async getWishlistIds(): Promise<string[]> {
-    console.log('[Dwello-DB Debug]: Fetching wishlist IDs from offline storage...');
+  async getWishlistIds(userId?: string): Promise<string[]> {
+    const key = userId ? `${KEYS.WISHLIST_IDS}_${userId}` : KEYS.WISHLIST_IDS;
+    console.log(`[Dwello-DB Debug]: Fetching wishlist IDs for key: ${key}`);
     try {
-      const raw = await AsyncStorage.getItem(KEYS.WISHLIST_IDS);
+      const raw = await AsyncStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : [];
       console.log(`[Dwello-DB Debug]: Retrieved ${parsed.length} saved wishlist items from disk.`);
       return parsed;
@@ -34,12 +35,13 @@ export const StorageService = {
   },
 
   /**
-   * Persists array of wishlist IDs
+   * Persists array of wishlist IDs scoped per user
    */
-  async saveWishlistIds(ids: string[]): Promise<void> {
-    console.log(`[Dwello-DB Debug]: Storing ${ids.length} wishlist IDs to offline storage`);
+  async saveWishlistIds(ids: string[], userId?: string): Promise<void> {
+    const key = userId ? `${KEYS.WISHLIST_IDS}_${userId}` : KEYS.WISHLIST_IDS;
+    console.log(`[Dwello-DB Debug]: Storing ${ids.length} wishlist IDs to ${key}`);
     try {
-      await AsyncStorage.setItem(KEYS.WISHLIST_IDS, JSON.stringify(ids));
+      await AsyncStorage.setItem(key, JSON.stringify(ids));
     } catch (error) {
       console.error('[Dwello-Error Debug]: Error saving wishlist IDs:', error);
     }
@@ -130,6 +132,26 @@ export const StorageService = {
       await AsyncStorage.setItem(KEYS.NOTIFICATIONS_ENABLED, enabled ? 'true' : 'false');
     } catch (error) {
       console.error('[Dwello-Error Debug]: Failed to save notification setting:', error);
+    }
+  },
+
+  async getSplitterState(userId?: string): Promise<any | null> {
+    const key = `@dwello_splitter_state_${userId || 'guest'}`;
+    try {
+      const raw = await AsyncStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      console.error('[Dwello-Error Debug]: Failed to load splitter state:', error);
+      return null;
+    }
+  },
+
+  async saveSplitterState(state: any, userId?: string): Promise<void> {
+    const key = `@dwello_splitter_state_${userId || 'guest'}`;
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(state));
+    } catch (error) {
+      console.error('[Dwello-Error Debug]: Failed to save splitter state:', error);
     }
   },
 };

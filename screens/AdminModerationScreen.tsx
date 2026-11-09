@@ -1,8 +1,5 @@
 /**
- * Admin Moderation Screen
- * Section 3 & 4: Demo Admin Dashboard for managing community reports,
- * flagging/hiding listings, and reviewing host appeals.
- * Logging prefix: [Dwello-Moderation Error]
+ * Demo dashboard for reviewing listing reports and host appeals.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -40,6 +37,7 @@ export default function AdminModerationScreen() {
   const [reports, setReports] = useState<ModerationReport[]>([]);
   const [appeals, setAppeals] = useState<ModerationAppeal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasModeratorAccess, setHasModeratorAccess] = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [inspectingReport, setInspectingReport] = useState<ModerationReport | null>(null);
@@ -47,6 +45,13 @@ export default function AdminModerationScreen() {
 
   const loadData = useCallback(async () => {
     try {
+      const isModerator = await ModerationService.isCurrentUserModerator();
+      setHasModeratorAccess(isModerator);
+      if (!isModerator) {
+        setReports([]);
+        setAppeals([]);
+        return;
+      }
       const [allReports, allAppeals] = await Promise.all([
         ModerationService.getAllReports(),
         ModerationService.getAllAppeals(),
@@ -55,6 +60,7 @@ export default function AdminModerationScreen() {
       setAppeals(allAppeals);
     } catch (error) {
       console.error('[Dwello-Moderation Error]: Failed to load moderation data:', error);
+      setHasModeratorAccess(false);
       showDebugBanner('error', 'Error Loading Data', 'Unable to retrieve moderation queue.');
     } finally {
       setIsLoading(false);
@@ -99,18 +105,12 @@ export default function AdminModerationScreen() {
   const handleFlagAndHideListing = async (report: ModerationReport) => {
     setProcessingId(report.id);
     try {
-      const hostId = 'owner-tandin'; // Demo default host or listing owner
       const listingTitle = report.listing_title || 'Listing';
-      await ModerationService.flagAndHideListing(
-        report.id,
-        report.listing_id,
-        hostId,
-        listingTitle
-      );
+      await ModerationService.flagAndHideListing(report.id);
       showDebugBanner(
         'success',
         'Listing Flagged & Hidden',
-        `"${listingTitle}" is now hidden. Host notified to submit an appeal.`
+        `"${listingTitle}" is now hidden. The listing owner was notified.`
       );
       await loadData();
     } catch (error: any) {
@@ -126,15 +126,12 @@ export default function AdminModerationScreen() {
     setProcessingId(appeal.id);
     try {
       await ModerationService.approveAppeal(
-        appeal.id,
-        appeal.listing_id,
-        appeal.host_id,
-        appeal.listing_title
+        appeal.id
       );
       showDebugBanner(
         'success',
         'Appeal Approved',
-        `"${appeal.listing_title || 'Listing'}" has been restored to active marketplace.`
+        `Visibility for "${appeal.listing_title || 'Listing'}" has been restored.`
       );
       await loadData();
     } catch (error: any) {
@@ -148,15 +145,11 @@ export default function AdminModerationScreen() {
   const handleRejectAppeal = async (appeal: ModerationAppeal) => {
     setProcessingId(appeal.id);
     try {
-      await ModerationService.rejectAppeal(
-        appeal.id,
-        appeal.host_id,
-        appeal.listing_title
-      );
+      await ModerationService.rejectAppeal(appeal.id);
       showDebugBanner(
         'info',
         'Appeal Rejected',
-        `Appeal for "${appeal.listing_title || 'Listing'}" was rejected. Host notified.`
+        `Appeal for "${appeal.listing_title || 'Listing'}" was rejected. The listing owner was notified.`
       );
       await loadData();
     } catch (error: any) {
@@ -168,32 +161,25 @@ export default function AdminModerationScreen() {
   };
 
   const inspectingListing: PropertyListing | null = inspectingReport
-    ? allListings.find((l) => l.id === inspectingReport.listing_id) || {
-        id: inspectingReport.listing_id,
-        title: inspectingReport.listing_title || 'Reported Property Listing',
-        price: 13500,
-        category: 'Full Flat',
-        bhkType: '2BHK',
-        municipalRegion: 'Thimphu',
-        zoneArea: 'Norzin Lam',
-        fullAddress: 'Norzin Lam • Thimphu Core Zone',
-        latitude: 27.4712,
-        longitude: 89.6385,
-        description: 'Spacious rental unit in prime municipal location. Subject to community policy report review.',
-        images: ['https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80'],
-        amenities: ['Water Included', 'Parking', 'WiFi'],
-        securityDeposit: 25000,
-        leasePeriod: '1 year',
-        ownerId: 'owner-tandin',
-        ownerName: 'Tandin Kelzang',
-        ownerPhone: '17777777',
-        ownerRole: 'Landlord / Host',
-        fairMarketPrice: true,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
+    ? allListings.find((listing) => listing.id === inspectingReport.listing_id) || null
     : null;
+
+  if (!isLoading && hasModeratorAccess === false) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, justifyContent: 'center', padding: 28 }]}>
+        <Ionicons name="lock-closed-outline" size={48} color="#DC2626" />
+        <Text style={[styles.headerTitle, { marginTop: 16, textAlign: 'center' }]}>
+          Moderator access required
+        </Text>
+        <Text style={[styles.emptySubtitle, { textAlign: 'center', marginTop: 8 }]}>
+          Sign in with an account authorized in the Supabase dwello_moderators table.
+        </Text>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.btnInspect, { marginTop: 20 }]}>
+          <Text style={styles.btnInspectText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -210,7 +196,7 @@ export default function AdminModerationScreen() {
           <Text style={styles.headerTitle}>Moderation Panel</Text>
           <View style={styles.demoBadge}>
             <View style={styles.demoDot} />
-            <Text style={styles.demoBadgeText}>Demo Admin</Text>
+            <Text style={styles.demoBadgeText}>Authorized Moderator</Text>
           </View>
         </View>
         <TouchableOpacity
@@ -318,6 +304,7 @@ export default function AdminModerationScreen() {
                 pendingReports.map((report) => {
                   const isBusy = processingId === report.id;
                   const shortId = report.id.slice(-6).toUpperCase();
+                  const reportedListing = allListings.find((listing) => listing.id === report.listing_id);
                   return (
                     <View key={report.id} style={styles.card}>
                       <View style={styles.cardHeader}>
@@ -330,6 +317,10 @@ export default function AdminModerationScreen() {
                       </View>
 
                       <Text style={styles.listingName}>{report.listing_title}</Text>
+                      <Text style={styles.metaText}>
+                        Listing ID: {report.listing_id}
+                        {reportedListing ? ` • Owner account: ${reportedListing.ownerId}` : ''}
+                      </Text>
 
                       {report.details ? (
                         <View style={styles.detailsBox}>
@@ -351,7 +342,7 @@ export default function AdminModerationScreen() {
                         </Text>
                       </View>
 
-                      {/* Inspect Listing Preview Trigger (Module 1.1) */}
+                      {/* Open the reported listing preview. */}
                       <TouchableOpacity
                         style={styles.btnInspect}
                         onPress={() => setInspectingReport(report)}
@@ -408,6 +399,7 @@ export default function AdminModerationScreen() {
                 pendingAppeals.map((appeal) => {
                   const isBusy = processingId === appeal.id;
                   const shortId = appeal.id.slice(-6).toUpperCase();
+                  const relatedReport = reports.find((report) => report.id === appeal.report_id);
                   return (
                     <View key={appeal.id} style={styles.card}>
                       <View style={styles.cardHeader}>
@@ -415,11 +407,26 @@ export default function AdminModerationScreen() {
                           <Text style={[styles.reportTagText, { color: '#2563EB' }]}>#APP-{shortId}</Text>
                         </View>
                         <View style={[styles.reasonBadge, { backgroundColor: '#FEF3C7' }]}>
-                          <Text style={[styles.reasonBadgeText, { color: '#D97706' }]}>Pending Review</Text>
+                          <Text style={[styles.reasonBadgeText, { color: '#D97706' }]}>
+                            {appeal.appeal_category || 'Other'}
+                          </Text>
                         </View>
                       </View>
 
                       <Text style={styles.listingName}>{appeal.listing_title || 'Listing Target'}</Text>
+                      <Text style={styles.metaText}>
+                        Appeal #{shortId} • Report #{appeal.report_id}
+                      </Text>
+
+                      {relatedReport && (
+                        <View style={[styles.detailsBox, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}>
+                          <Ionicons name="flag-outline" size={16} color="#C2410C" style={{ marginRight: 6 }} />
+                          <Text style={styles.detailsText}>
+                            Original report: {relatedReport.reason}
+                            {relatedReport.details ? ` — ${relatedReport.details}` : ''}
+                          </Text>
+                        </View>
+                      )}
 
                       <View style={[styles.detailsBox, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
                         <Ionicons name="document-text-outline" size={16} color="#16A34A" style={{ marginRight: 6 }} />
@@ -428,7 +435,27 @@ export default function AdminModerationScreen() {
 
                       <View style={styles.metaRow}>
                         <Ionicons name="business-outline" size={14} color="#9CA3AF" />
-                        <Text style={styles.metaText}>Host: {appeal.host_name || appeal.host_id}</Text>
+                        <Text style={styles.metaText}>
+                          Owner: {appeal.host_name || 'Dwello member'} ({appeal.host_id})
+                        </Text>
+                      </View>
+                      {appeal.moderation_action_id && (
+                        <View style={styles.metaRow}>
+                          <Ionicons name="shield-outline" size={14} color="#9CA3AF" />
+                          <Text style={styles.metaText}>
+                            Moderation action: {appeal.moderation_action_id}
+                          </Text>
+                        </View>
+                      )}
+                      {appeal.proof_image_url ? (
+                        <View style={styles.metaRow}>
+                          <Ionicons name="document-attach-outline" size={14} color="#9CA3AF" />
+                          <Text style={styles.metaText}>Evidence is securely stored</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.metaRow}>
+                        <Ionicons name="home-outline" size={14} color="#9CA3AF" />
+                        <Text style={styles.metaText}>Listing ID: {appeal.listing_id}</Text>
                       </View>
                       <View style={styles.metaRow}>
                         <Ionicons name="time-outline" size={14} color="#9CA3AF" />
@@ -525,7 +552,10 @@ export default function AdminModerationScreen() {
                         "{appeal.appeal_reason}"
                       </Text>
                       <Text style={styles.auditMeta}>
-                        Host: {appeal.host_name || appeal.host_id} • {new Date(appeal.created_at).toLocaleDateString()}
+                        Owner: {appeal.host_name || appeal.host_id} • Submitted {new Date(appeal.created_at).toLocaleString()}
+                        {appeal.reviewed_at
+                          ? ` • Reviewed ${new Date(appeal.reviewed_at).toLocaleString()} by ${appeal.reviewed_by || 'moderator'}`
+                          : ''}
                       </Text>
                     </View>
                   ))}
@@ -542,6 +572,8 @@ export default function AdminModerationScreen() {
                               ? { backgroundColor: '#FDE8E8' }
                               : report.status === 'appeal_approved'
                               ? { backgroundColor: '#DEF7EC' }
+                              : report.status === 'appeal_rejected'
+                              ? { backgroundColor: '#FDE8E8' }
                               : { backgroundColor: '#F3F4F6' },
                           ]}>
                           <Text
@@ -551,6 +583,8 @@ export default function AdminModerationScreen() {
                                 ? { color: '#9B1C1C' }
                                 : report.status === 'appeal_approved'
                                 ? { color: '#03543F' }
+                                : report.status === 'appeal_rejected'
+                                ? { color: '#9B1C1C' }
                                 : { color: '#4B5563' },
                             ]}>
                             {report.status.replace('_', ' ').toUpperCase()}
@@ -561,7 +595,10 @@ export default function AdminModerationScreen() {
                         Reason: {report.reason} {report.details ? `— "${report.details}"` : ''}
                       </Text>
                       <Text style={styles.auditMeta}>
-                        Reporter: {report.reporter_email || report.reporter_id} • {new Date(report.created_at).toLocaleDateString()}
+                        Reporter: {report.reporter_email || report.reporter_id} • Submitted {new Date(report.created_at).toLocaleString()}
+                        {report.reviewed_at
+                          ? ` • Reviewed ${new Date(report.reviewed_at).toLocaleString()} by ${report.reviewed_by || 'moderator'}`
+                          : ''}
                       </Text>
                     </View>
                   ))}
@@ -572,7 +609,7 @@ export default function AdminModerationScreen() {
         </ScrollView>
       )}
 
-      {/* Deep-Link Inspection Modal (Module 1.2 & 1.3) */}
+      {/* Listing inspection modal. */}
       <Modal
         visible={!!inspectingReport && !!inspectingListing}
         transparent
@@ -704,7 +741,7 @@ export default function AdminModerationScreen() {
               </ScrollView>
             )}
 
-            {/* Sticky Admin Verdict Actions (Module 1.3) */}
+            {/* Moderation decision actions. */}
             <View style={styles.inspectStickyFooter}>
               <TouchableOpacity
                 style={styles.inspectDismissBtn}

@@ -1,6 +1,5 @@
 /**
- * Dwello Design System Colors
- * Matches the official Material Design 3 / iOS mobile aesthetic from the Dwello App Manual.
+ * Shared colors for the Dwello interface.
  */
 export const DwelloColors = {
   primary: '#FF385C', // Signature coral action color

@@ -127,9 +127,7 @@ export function getZoneCoordinates(zone: string = '', region: string = ''): { la
   return { latitude: 27.4728, longitude: 89.6393 };
 }
 
-/**
- * High-quality seed listings matching the exact Dwello App Manual screenshots
- */
+/** Sample listings used to populate the marketplace. */
 export const INITIAL_SEED_LISTINGS: PropertyListing[] = [
   {
     id: 'prop-1',
@@ -422,4 +420,3 @@ export const INITIAL_SEED_LISTINGS: PropertyListing[] = [
     updatedAt: new Date(Date.now() - 3600 * 1000 * 24 * 7).toISOString(),
   },
 ];
-

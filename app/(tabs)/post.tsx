@@ -1,10 +1,8 @@
 /**
- * Listing Creation & Selection (Post a Listing)
- * Section 5 of Dwello App Manual.
- * Multi-step posting form supporting Full Flats and Shared Rooms with Expo Image Picker and phone validation.
+ * Listing form for full flats and shared rooms.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -30,9 +28,9 @@ import { useDebug } from '@/context/DebugContext';
 import { validateBhutanPhone } from '@/utils/validation';
 import { ensureMediaLibraryPermission, ensureCameraPermission } from '@/utils/permissions';
 import { ListingCategory, BHKType, MunicipalRegion } from '@/types/listing';
-import { getZoneCoordinates } from '@/constants/BhutanData';
+import { GeocodingService, getLocationSearchRadius } from '@/services/geocodingService';
 
-const MUNICIPAL_REGIONS: MunicipalRegion[] = ['Thimphu', 'Phuentsholing', 'Paro'];
+const MUNICIPAL_REGIONS: MunicipalRegion[] = ['Thimphu', 'Phuentsholing', 'Paro', 'Other'];
 const BHK_OPTIONS: BHKType[] = ['1BHK', '2BHK', '3BHK'];
 const AMENITY_OPTIONS = ['Water Included', 'Parking', 'WiFi', 'Furnished'];
 
@@ -46,18 +44,21 @@ export default function PostListingScreen() {
   const { user } = useAuth();
   const { createListing } = useListings();
   const { showDebugBanner } = useDebug();
+  const mapRef = useRef<MapView>(null);
+  const locationSearchAbortRef = useRef<AbortController | null>(null);
 
   const [category, setCategory] = useState<ListingCategory>('Full Flat');
   const [title, setTitle] = useState('');
   const [region, setRegion] = useState<MunicipalRegion>('Thimphu');
+  const [customRegion, setCustomRegion] = useState('');
   const [zone, setZone] = useState('');
   const [rent, setRent] = useState('');
   const [bhk, setBhk] = useState<BHKType>('2BHK');
   const [amenities, setAmenities] = useState<string[]>(['Water Included']);
   const [roommatePrefs, setRoommatePrefs] = useState<string[]>(['Student Friendly']);
   const [description, setDescription] = useState('');
-  const [contactName, setContactName] = useState(user?.fullName || 'Tandin Kelzang');
-  const [phone, setPhone] = useState(user?.phoneNumber || '17777777');
+  const [contactName, setContactName] = useState(user?.fullName || '');
+  const [phone, setPhone] = useState(user?.phoneNumber || '');
   const [photos, setPhotos] = useState<string[]>([
     'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80',
   ]);
@@ -68,19 +69,122 @@ export default function PostListingScreen() {
     latitude: 27.4728,
     longitude: 89.6393,
   });
-  const [isManualPin, setIsManualPin] = useState(false);
+  const [localityLabel, setLocalityLabel] = useState<string>('');
+  const contactOwnerIdRef = useRef(user?.id);
+  const geocodeAbortRef = useRef<AbortController | null>(null);
+  const [locationSearchStatus, setLocationSearchStatus] = useState<
+    'idle' | 'searching' | 'notFound' | 'error'
+  >('idle');
+  const [locationCoordinateSource, setLocationCoordinateSource] = useState<
+    'unselected' | 'searched' | 'manual'
+  >('unselected');
 
   useEffect(() => {
-    if (!isManualPin) {
-      const coords = getZoneCoordinates(zone, region);
-      setSelectedCoords(coords);
+    if (contactOwnerIdRef.current === user?.id) return;
+
+    contactOwnerIdRef.current = user?.id;
+    setContactName(user?.fullName || '');
+    setPhone(user?.phoneNumber || '');
+  }, [user?.fullName, user?.id, user?.phoneNumber]);
+
+  useEffect(() => {
+    const regionName = region === 'Other' ? customRegion.trim() : region;
+    if (!zone.trim() && !regionName) {
+      setLocationSearchStatus('idle');
+      return;
     }
-  }, [zone, region, isManualPin]);
+
+    const query = [zone.trim(), regionName, 'Bhutan'].filter(Boolean).join(', ');
+    const controller = new AbortController();
+    locationSearchAbortRef.current?.abort();
+    locationSearchAbortRef.current = controller;
+    setLocationSearchStatus('searching');
+    setLocationCoordinateSource('unselected');
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await GeocodingService.searchLocation(query, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        if (!result) {
+          setLocationSearchStatus('notFound');
+          return;
+        }
+
+        setSelectedCoords({ latitude: result.latitude, longitude: result.longitude });
+        setLocationCoordinateSource('searched');
+        setFieldErrors((previous) => ({ ...previous, location: '' }));
+        setLocalityLabel(result.displayName);
+        setLocationSearchStatus('idle');
+        const radius = getLocationSearchRadius(result);
+        const latitudeDelta = Math.min(0.35, Math.max(0.025, (radius * 2.8) / 111000));
+        const longitudeDelta =
+          latitudeDelta / Math.max(0.2, Math.cos((result.latitude * Math.PI) / 180));
+        mapRef.current?.animateToRegion(
+          {
+            latitude: result.latitude,
+            longitude: result.longitude,
+            latitudeDelta,
+            longitudeDelta,
+          },
+          600
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('[Dwello-MapSearch]: Listing location search failed:', error);
+          setLocationSearchStatus('error');
+        }
+      }
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [zone, region, customRegion]);
 
   const toggleAmenity = (item: string) => {
     setAmenities((prev) =>
       prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item]
     );
+  };
+
+  // Live reverse‑geocode when pin moves
+  useEffect(() => {
+    // Abort previous request if any
+    if (geocodeAbortRef.current) {
+      geocodeAbortRef.current.abort();
+    }
+    const abortCtrl = new AbortController();
+    geocodeAbortRef.current = abortCtrl;
+    const timer = setTimeout(() => {
+      GeocodingService.reverseGeocode(selectedCoords.latitude, selectedCoords.longitude, {
+        signal: abortCtrl.signal,
+      })
+        .then((res) => {
+          if (!abortCtrl.signal.aborted) setLocalityLabel(res.formattedDisplay);
+        })
+        .catch((err) => {
+          if (err.name !== 'AbortError') {
+            console.error('[Dwello-Error] Reverse geocode failed:', err);
+          }
+        });
+    }, 500); // debounce 500 ms
+    return () => {
+      clearTimeout(timer);
+      abortCtrl.abort();
+    };
+  }, [selectedCoords]);
+
+  const handleManualLocationChange = (latitude: number, longitude: number) => {
+    locationSearchAbortRef.current?.abort();
+    setLocationSearchStatus('idle');
+    setLocationCoordinateSource('manual');
+    setFieldErrors((previous) => ({ ...previous, location: '' }));
+    setLocalityLabel(GeocodingService.getInstantEstimate(latitude, longitude).formattedDisplay);
+    setSelectedCoords({ latitude, longitude });
   };
 
   const toggleRoommateTag = (tag: string) => {
@@ -160,6 +264,10 @@ export default function PostListingScreen() {
 
   const handleSubmit = () => {
     if (isSubmitting) return; // Prevent duplicate submissions
+    if (!user?.id) {
+      showDebugBanner('error', 'Sign In Required', 'Please sign in before publishing a listing.');
+      return;
+    }
 
     console.log('[Dwello-DB Debug]: Validating listing creation fields...');
     const errors: Record<string, string> = {};
@@ -169,6 +277,12 @@ export default function PostListingScreen() {
     }
     if (!zone.trim()) {
       errors.zone = 'Zone/area is required (e.g., Babesa, Rinchending).';
+    }
+    if (region === 'Other' && !customRegion.trim()) {
+      errors.region = 'Enter the Dzongkhag or town for this location.';
+    }
+    if (locationCoordinateSource !== 'manual') {
+      errors.location = 'Place the pin at the property location before publishing.';
     }
     const numRent = parseFloat(rent);
     if (isNaN(numRent) || numRent <= 0) {
@@ -211,16 +325,15 @@ export default function PostListingScreen() {
         description: description.trim() || 'No description provided.',
         price: numRent,
         bhkType: bhk,
-        municipalRegion: region,
+        municipalRegion: region === 'Other' ? customRegion.trim() : region,
         zoneArea: zone.trim(),
-        fullAddress: `${zone.trim()} • Other — ${region}`,
-        latitude: selectedCoords.latitude || getZoneCoordinates(zone.trim(), region).latitude,
-        longitude: selectedCoords.longitude || getZoneCoordinates(zone.trim(), region).longitude,
+        fullAddress: `${zone.trim()} — ${region === 'Other' ? customRegion.trim() : region}`,
+        latitude: selectedCoords.latitude,
+        longitude: selectedCoords.longitude,
         images: photos.length > 0 ? photos : ['https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=800&q=80'],
         amenities,
         roommatePreferences: category === 'Shared Room' ? roommatePrefs : undefined,
-        ownerId: user?.id || 'owner-tandin',
-        ownerName: contactName.trim() || 'Dwello User',
+        contactName: contactName.trim() || user?.fullName || '',
         ownerPhone: phone.trim(),
         ownerRole: category === 'Shared Room' ? 'Primary Tenant' : 'Landlord / Host',
       });
@@ -249,7 +362,7 @@ export default function PostListingScreen() {
         style={styles.scrollBody}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled">
-        {/* Step 1: Category Selection (Manual Page 9 & 10) */}
+        {/* Select a listing category. */}
         <Text style={styles.stepTitle}>What are you listing?</Text>
         <Text style={styles.stepSubtitle}>
           Choose 'Full Flat' for entire properties or 'Shared Room' if you're looking for a roommate.
@@ -334,7 +447,11 @@ export default function PostListingScreen() {
             return (
               <TouchableOpacity
                 key={r}
-                onPress={() => setRegion(r)}
+                onPress={() => {
+                  setLocationCoordinateSource('unselected');
+                  setFieldErrors((previous) => ({ ...previous, location: '' }));
+                  setRegion(r);
+                }}
                 style={[styles.regionChip, active && styles.activeRegionChip]}>
                 <Text style={[styles.regionChipText, active && styles.activeRegionChipText]}>
                   {r}
@@ -343,6 +460,26 @@ export default function PostListingScreen() {
             );
           })}
         </View>
+        {region === 'Other' && (
+          <>
+            <Text style={styles.subFieldLabel}>Dzongkhag or Town</Text>
+            <TextInput
+              style={[styles.textInput, fieldErrors.region ? styles.inputErrorBorder : null]}
+              placeholder="Enter any Dzongkhag or town in Bhutan"
+              placeholderTextColor="#9CA3AF"
+              value={customRegion}
+              onChangeText={(text) => {
+                setLocationCoordinateSource('unselected');
+                setFieldErrors((previous) => ({ ...previous, location: '' }));
+                setCustomRegion(text);
+                if (fieldErrors.region) setFieldErrors((prev) => ({ ...prev, region: '' }));
+              }}
+            />
+            {fieldErrors.region ? (
+              <Text style={styles.inlineErrorText}>{fieldErrors.region}</Text>
+            ) : null}
+          </>
+        )}
 
         {/* Zone / Area */}
         <Text style={styles.subFieldLabel}>Zone / Area</Text>
@@ -352,18 +489,39 @@ export default function PostListingScreen() {
           placeholderTextColor="#9CA3AF"
           value={zone}
           onChangeText={(txt) => {
+            setLocationCoordinateSource('unselected');
+            setFieldErrors((previous) => ({ ...previous, location: '' }));
             setZone(txt);
             if (fieldErrors.zone) setFieldErrors((prev) => ({ ...prev, zone: '' }));
           }}
         />
         {fieldErrors.zone ? <Text style={styles.inlineErrorText}>{fieldErrors.zone}</Text> : null}
+        {fieldErrors.location ? (
+          <Text style={styles.inlineErrorText}>{fieldErrors.location}</Text>
+        ) : null}
+        {(locationSearchStatus !== 'idle' || localityLabel) && (
+          <Text style={styles.locationHint}>
+            {locationSearchStatus === 'searching'
+              ? 'Finding this location in Bhutan...'
+              : locationSearchStatus === 'notFound'
+              ? 'Location not found. You can still place the pin manually.'
+              : locationSearchStatus === 'error'
+              ? 'Could not search now. You can still place the pin manually.'
+              : locationCoordinateSource === 'searched'
+              ? `${localityLabel}. Move the pin to the exact property location.`
+              : localityLabel}
+          </Text>
+        )}
 
         {/* Pin Exact Location on Micro-Map */}
         <Text style={styles.subFieldLabel}>Pin Exact Location (Drag pin or tap map)</Text>
         <View style={styles.microMapContainer}>
           <MapView
+            ref={mapRef}
             style={styles.microMap}
-            region={{
+            showsPointsOfInterests={true}
+            showsBuildings={true}
+            initialRegion={{
               latitude: selectedCoords.latitude,
               longitude: selectedCoords.longitude,
               latitudeDelta: 0.02,
@@ -371,16 +529,14 @@ export default function PostListingScreen() {
             }}
             onPress={(e: MapPressEvent) => {
               const { latitude, longitude } = e.nativeEvent.coordinate;
-              setSelectedCoords({ latitude, longitude });
-              setIsManualPin(true);
+              handleManualLocationChange(latitude, longitude);
             }}>
             <Marker
               draggable
               coordinate={selectedCoords}
               onDragEnd={(e) => {
                 const { latitude, longitude } = e.nativeEvent.coordinate;
-                setSelectedCoords({ latitude, longitude });
-                setIsManualPin(true);
+                handleManualLocationChange(latitude, longitude);
               }}
               pinColor={DwelloColors.primary}
             />
@@ -444,7 +600,7 @@ export default function PostListingScreen() {
           })}
         </View>
 
-        {/* Adaptive Tags if Shared Room is selected (Manual Page 10) */}
+        {/* Roommate preferences apply to shared-room listings. */}
         {category === 'Shared Room' && (
           <View style={styles.adaptiveSection}>
             <Text style={styles.fieldLabel}>Roommate & Tenant Preferences</Text>
@@ -688,6 +844,7 @@ const styles = StyleSheet.create({
   },
   regionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 10,
   },
@@ -710,6 +867,12 @@ const styles = StyleSheet.create({
   },
   activeRegionChipText: {
     color: '#FFFFFF',
+  },
+  locationHint: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 2,
+    marginBottom: 8,
   },
   bhkRow: {
     flexDirection: 'row',

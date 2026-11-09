@@ -4,7 +4,7 @@
  * Zooms into local streets/roads on pin selection and features bottom preview cards.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -19,7 +19,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { PropertyListing } from '@/types/listing';
 import { DwelloColors } from '@/constants/Colors';
 import { formatNu } from '@/utils/splitter';
-import { BHUTAN_ZONE_COORDINATES } from '@/constants/BhutanData';
+import {
+  GeocodingService,
+  filterListingsByLocation,
+  getLocationSearchRadius,
+  LocationSearchResult,
+} from '@/services/geocodingService';
 
 // Default Bhutan region centered on Thimphu / Western Bhutan urban corridor
 const INITIAL_REGION = {
@@ -38,72 +43,103 @@ interface PropertyMapProps {
 export function PropertyMap({ listings, onSelectListing, searchLocation }: PropertyMapProps) {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
-  const [selectedListing, setSelectedListing] = useState<PropertyListing | null>(
-    listings.length > 0 ? listings[0] : null
-  );
+  const searchRequestRef = useRef<AbortController | null>(null);
+  const [selectedListing, setSelectedListing] = useState<PropertyListing | null>(null);
+  const [locationSearchStatus, setLocationSearchStatus] = useState<
+    'idle' | 'searching' | 'resolved' | 'notFound' | 'error'
+  >('idle');
+  const [searchedLocation, setSearchedLocation] = useState<LocationSearchResult | null>(null);
+  const [searchedQuery, setSearchedQuery] = useState('');
+  const normalizedSearch = searchLocation?.trim() || '';
 
-  // Dynamic Map View Search Geolocation & Camera Navigation
+  const mapListings = useMemo(() => {
+    const locatedListings = listings.filter(
+      (item) =>
+        Number.isFinite(item.latitude) &&
+        Number.isFinite(item.longitude) &&
+        Math.abs(item.latitude) <= 90 &&
+        Math.abs(item.longitude) <= 180
+    );
+
+    if (normalizedSearch.length < 2) return locatedListings;
+    if (
+      locationSearchStatus !== 'resolved' ||
+      searchedQuery !== normalizedSearch ||
+      !searchedLocation
+    ) {
+      return [];
+    }
+
+    return filterListingsByLocation(locatedListings, searchedLocation);
+  }, [listings, locationSearchStatus, normalizedSearch, searchedLocation, searchedQuery]);
+
   useEffect(() => {
-    if (!searchLocation || searchLocation.trim().length < 2) return;
+    if (normalizedSearch.length < 2) {
+      searchRequestRef.current?.abort();
+      searchRequestRef.current = null;
+      setLocationSearchStatus('idle');
+      setSearchedLocation(null);
+      setSearchedQuery('');
+      return;
+    }
 
-    const query = searchLocation.trim().toLowerCase();
-    console.log(`[Dwello-MapSearch Debug]: Evaluating map search navigation for "${searchLocation}"`);
+    const controller = new AbortController();
+    searchRequestRef.current?.abort();
+    searchRequestRef.current = controller;
+    setLocationSearchStatus('searching');
+    setSearchedLocation(null);
+    setSearchedQuery('');
 
-    // 1. Search in BHUTAN_ZONE_COORDINATES (exact or partial match)
-    const matchedZoneKey = Object.keys(BHUTAN_ZONE_COORDINATES).find((key) => {
-      const lower = key.toLowerCase();
-      return lower === query || lower.includes(query) || query.includes(lower);
-    });
+    const timeout = setTimeout(async () => {
+      try {
+        const result = await GeocodingService.searchLocation(normalizedSearch, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
 
-    let targetCoords: { latitude: number; longitude: number } | null = null;
-    let locationName = '';
+        if (!result) {
+          setLocationSearchStatus('notFound');
+          return;
+        }
 
-    if (matchedZoneKey) {
-      targetCoords = BHUTAN_ZONE_COORDINATES[matchedZoneKey];
-      locationName = matchedZoneKey;
-    } else {
-      // 2. Search in current listings (by zoneArea, municipalRegion, or fullAddress)
-      const matchingListing = listings.find((item) => {
-        const zoneMatch = item.zoneArea?.toLowerCase().includes(query);
-        const regionMatch = item.municipalRegion?.toLowerCase().includes(query);
-        const addrMatch = item.fullAddress?.toLowerCase().includes(query);
-        return zoneMatch || regionMatch || addrMatch;
-      });
-
-      if (matchingListing && matchingListing.latitude && matchingListing.longitude) {
-        targetCoords = {
-          latitude: matchingListing.latitude,
-          longitude: matchingListing.longitude,
-        };
-        locationName = matchingListing.zoneArea || matchingListing.title;
-        setSelectedListing(matchingListing);
+        setSearchedLocation(result);
+        setSearchedQuery(normalizedSearch);
+        setLocationSearchStatus('resolved');
+        const radius = getLocationSearchRadius(result);
+        const latitudeDelta = Math.min(0.35, Math.max(0.025, (radius * 2.8) / 111000));
+        const longitudeDelta =
+          latitudeDelta / Math.max(0.2, Math.cos((result.latitude * Math.PI) / 180));
+        mapRef.current?.animateToRegion(
+          {
+            latitude: result.latitude,
+            longitude: result.longitude,
+            latitudeDelta,
+            longitudeDelta,
+          },
+          600
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('[Dwello-MapSearch]: Location search failed:', error);
+          setLocationSearchStatus('error');
+        }
       }
-    }
+    }, 1000);
 
-    if (targetCoords) {
-      console.log(
-        `[Dwello-MapSearch Debug]: Animate camera region to ${locationName} (${targetCoords.latitude}, ${targetCoords.longitude})`
-      );
-      mapRef.current?.animateToRegion(
-        {
-          latitude: targetCoords.latitude - 0.0035, // slight offset to keep pin visible above bottom card
-          longitude: targetCoords.longitude,
-          latitudeDelta: 0.02, // Clear neighborhood zoom
-          longitudeDelta: 0.02,
-        },
-        600
-      );
-    }
-  }, [searchLocation, listings]);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [normalizedSearch]);
 
   useEffect(() => {
     setSelectedListing((prev) => {
-      if (listings.length > 0 && (!prev || !listings.some((l) => l.id === prev.id))) {
-        return listings[0];
+      if (prev && mapListings.some((listing) => listing.id === prev.id)) {
+        return prev;
       }
-      return prev;
+      return mapListings[0] || null;
     });
-  }, [listings]);
+  }, [mapListings]);
 
   const handleMarkerPress = (item: PropertyListing) => {
     console.log('[Dwello-Map Debug]: Pin selected. Zooming into locality for:', item.title, item.zoneArea);
@@ -116,8 +152,8 @@ export function PropertyMap({ listings, onSelectListing, searchLocation }: Prope
     // Slight latitude offset ensures the bottom preview card does not occlude the pin
     mapRef.current?.animateToRegion(
       {
-        latitude: (item.latitude || 27.4728) - 0.0035,
-        longitude: item.longitude || 89.6393,
+        latitude: item.latitude,
+        longitude: item.longitude,
         latitudeDelta: 0.014, // Tight street-level zoom
         longitudeDelta: 0.014,
       },
@@ -126,6 +162,23 @@ export function PropertyMap({ listings, onSelectListing, searchLocation }: Prope
   };
 
   const resetMapZoom = () => {
+    if (locationSearchStatus === 'resolved' && searchedLocation) {
+      const radius = getLocationSearchRadius(searchedLocation);
+      const latitudeDelta = Math.min(0.35, Math.max(0.025, (radius * 2.8) / 111000));
+      const longitudeDelta =
+        latitudeDelta / Math.max(0.2, Math.cos((searchedLocation.latitude * Math.PI) / 180));
+      mapRef.current?.animateToRegion(
+        {
+          latitude: searchedLocation.latitude,
+          longitude: searchedLocation.longitude,
+          latitudeDelta,
+          longitudeDelta,
+        },
+        500
+      );
+      return;
+    }
+
     mapRef.current?.animateToRegion(INITIAL_REGION, 500);
   };
 
@@ -147,15 +200,16 @@ export function PropertyMap({ listings, onSelectListing, searchLocation }: Prope
         showsMyLocationButton={false}
         showsCompass
         showsBuildings
+        showsPointsOfInterests
         showsIndoors>
-        {listings.map((item) => {
+        {mapListings.map((item) => {
           const isSelected = selectedListing?.id === item.id;
           return (
             <Marker
               key={item.id}
               coordinate={{
-                latitude: item.latitude || 27.4728,
-                longitude: item.longitude || 89.6393,
+                latitude: item.latitude,
+                longitude: item.longitude,
               }}
               anchor={{ x: 0.5, y: 1.0 }} // Anchors needle tip exactly to location coordinate
               onPress={() => handleMarkerPress(item)}>
@@ -198,7 +252,23 @@ export function PropertyMap({ listings, onSelectListing, searchLocation }: Prope
         </TouchableOpacity>
       </View>
 
-      {/* Bottom Preview Card (Manual Section 2 / Lab Report Section 3) */}
+      {normalizedSearch.length >= 2 && locationSearchStatus !== 'idle' && (
+        <View style={styles.locationSearchMessage}>
+          <Text style={styles.locationSearchMessageText}>
+            {locationSearchStatus === 'searching'
+              ? 'Searching Bhutan...'
+              : locationSearchStatus === 'notFound'
+              ? 'Location not found. Try another area.'
+              : locationSearchStatus === 'error'
+              ? 'Could not search now. Check your connection.'
+              : mapListings.length === 0
+              ? 'No listings found near this location.'
+              : `${mapListings.length} nearby listing${mapListings.length === 1 ? '' : 's'}`}
+          </Text>
+        </View>
+      )}
+
+      {/* Preview of the selected listing. */}
       {selectedListing && (
         <View style={styles.previewCardWrapper}>
           <TouchableOpacity
@@ -351,6 +421,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#111827',
+  },
+  locationSearchMessage: {
+    position: 'absolute',
+    top: 58,
+    right: 14,
+    maxWidth: '75%',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  locationSearchMessageText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '600',
   },
   previewCardWrapper: {
     position: 'absolute',

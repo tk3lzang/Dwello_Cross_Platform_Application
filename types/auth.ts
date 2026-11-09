@@ -22,10 +22,21 @@ export interface UserProfile {
   createdAt: string;
 }
 
+export interface PublicUserProfile {
+  id: string;
+  fullName: string;
+  phoneNumber: string;
+  role: UserRole;
+  bio: string;
+  avatarUrl: string;
+  occupation: string;
+  preferredZone: string;
+  budget?: number;
+}
+
 export interface AuthState {
   user: UserProfile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   error: string | null;
 }
-

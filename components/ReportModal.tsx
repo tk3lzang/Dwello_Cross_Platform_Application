@@ -1,6 +1,5 @@
 /**
- * Report Listing Moderation Modal
- * Allows flagging inaccurate, unavailable, or misleading listings as specified in Project II.
+ * Modal for reporting inaccurate, unavailable, or misleading listings.
  */
 
 import React, { useState } from 'react';
@@ -16,7 +15,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DwelloColors } from '@/constants/Colors';
-import { DatabaseService } from '@/services/database';
 import { ModerationService } from '@/services/moderationService';
 import { useAuth } from '@/context/AuthContext';
 import { useDebug } from '@/context/DebugContext';
@@ -26,7 +24,6 @@ interface ReportModalProps {
   visible: boolean;
   onClose: () => void;
   listingId: string;
-  listingTitle: string;
 }
 
 const REASONS: ('Already Rented' | 'Misleading Information' | 'Wrong Price or Location' | 'Inappropriate Content' | 'Scam / Fraud')[] = [
@@ -41,7 +38,6 @@ export function ReportModal({
   visible,
   onClose,
   listingId,
-  listingTitle,
 }: ReportModalProps) {
   const { user } = useAuth();
   const [selectedReason, setSelectedReason] = useState<typeof REASONS[number]>('Already Rented');
@@ -59,29 +55,18 @@ export function ReportModal({
   };
 
   const handleSubmit = async () => {
+    if (!user?.id) {
+      showDebugBanner('warning', 'Sign In Required', 'Please sign in before reporting a listing.');
+      return;
+    }
+
     setIsSubmitting(true);
     console.log('[Dwello-Moderation Debug]: Submitting report for listing:', listingId, selectedReason);
     try {
-      // 1. Submit through isolated moderation service
-      const reporterId = user?.id || 'guest-reporter';
-      const reporterEmail = user?.email || undefined;
       const report = await ModerationService.submitReport({
         listingId,
-        listingTitle,
-        reporterId,
-        reporterEmail,
         reason: selectedReason,
         details: notes.trim(),
-      });
-
-      // Also update legacy database payload for backward compatibility
-      await DatabaseService.reportListing({
-        listingId,
-        listingTitle,
-        reason: selectedReason,
-        notes: notes.trim(),
-        status: 'pending',
-        createdAt: new Date().toISOString(),
       });
 
       const repCode = report.id.slice(-6).toUpperCase();
@@ -102,11 +87,20 @@ export function ReportModal({
   };
 
   const toggleHideFromFeed = async () => {
-    const next = !isListingHiddenLocally;
-    setIsListingHiddenLocally(next);
-    if (next) {
-      await ModerationService.hideListingForUser(listingId);
+    if (isListingHiddenLocally) return;
+
+    try {
+      const hidden = await ModerationService.hideListingForUser(listingId);
+      if (!hidden) {
+        showDebugBanner('error', 'Update Failed', 'Could not hide this listing. Please try again.');
+        return;
+      }
+
+      setIsListingHiddenLocally(true);
       showDebugBanner('info', 'Feed Updated', 'Listing will be hidden from your feed.');
+    } catch (error) {
+      console.error('[Dwello-Moderation Error]: Could not hide listing from feed:', error);
+      showDebugBanner('error', 'Update Failed', 'Could not hide this listing. Please try again.');
     }
   };
 
@@ -120,7 +114,7 @@ export function ReportModal({
 
         <View style={styles.modalCard}>
           {submittedReportId ? (
-            /* Clean Success State (Module 2) */
+            /* Confirmation state after report submission. */
             <View style={styles.successContainer}>
               <View style={styles.successIconCircle}>
                 <Ionicons name="checkmark-circle" size={54} color={DwelloColors.success} />
@@ -404,4 +398,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-
